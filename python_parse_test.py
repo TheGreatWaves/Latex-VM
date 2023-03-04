@@ -34,7 +34,7 @@ def self_referential(input: str) -> Tuple[bool, str, str]:
     return lhs in rhs, lhs, rhs
 
 
-def replace_variables(expression: str, variables: Dict[Varname, Any], force_ignore: Set[Varname] = {}):
+def replace_variables(expression: str, variables: Dict[Varname, Any], force_ignore: Set[Varname] = set()):
     """
     Replaces variables in a mathematical expression with their values.
 
@@ -55,12 +55,41 @@ def replace_variables(expression: str, variables: Dict[Varname, Any], force_igno
     return expression
 
 def resolve_function_names(expression: str, variables: Dict[Varname, Any]) -> str:
+    fname_to_ignore = ''
+    if Expression.get_expression_type(expression) == ExpressionType.FUNCTION:
+        fname: str = Expression.get_function_name(raw_equation=expression)
+        expression = expression.replace(fname, '{}_func'.format(fname))
+        fname_to_ignore = fname
+    
     # Replace function names with their dictionary keys
     for key in variables.keys():
+        if key == fname_to_ignore:
+            continue
+
         pattern = r'\b{}\('.format(key.split("_")[0])
         expression = re.sub(pattern, f'{key}(', expression)
 
+
+
     return expression
+
+
+def substitute_function(fn: str, variables: Dict[Varname, Any], func_definitions: Dict[str, Tuple[Set[str], str]] = {}):
+    resolved_fn:str = fn
+    for varname, value in variables.items():
+        found = re.findall(varname, fn)
+        for places_to_substitute in found:
+            if "_func" in value:
+                value = value[1:-1] # Unwrap
+
+            if "_func" in value and (function := func_definitions.get(Expression.get_function_name(value))) is not None:
+                function_signature, function_definition = function
+                arguments = Expression.get_parameters_from_function(function_equation=value)
+                resolved_fn = resolved_fn.replace(places_to_substitute, f'({substitute_function(function_definition, variables | dict(zip(function_signature, arguments)), func_definitions)})')
+            else:
+                resolved_fn = resolved_fn.replace(places_to_substitute, value)
+    return resolved_fn
+
 
 
 class ExpressionType(Enum):
@@ -101,7 +130,7 @@ class Expression:
         return Expression.is_function(lhs)
     
     @staticmethod
-    def get_parameters_from_function(function_equation) -> Tuple[Set[Varname], int]:
+    def get_parameters_from_function(function_equation) -> Set[Varname]:
         first_param_index: int = function_equation.index('(')
         resolution:int = 1
         idx: int = first_param_index+1
@@ -116,11 +145,11 @@ class Expression:
 
             idx += 1
 
-            if idx >= len(function_equation):
+            if idx > len(function_equation):
                 raise Exception("Function not closed")
         
         parameters = function_equation[first_param_index+1:idx-1]
-        return {param.strip() for param in parameters.split(",")}
+        return {'({})'.format(param.strip()) for param in parameters.split(",")}
 
 
     @staticmethod
@@ -236,7 +265,7 @@ class GraphSession:
         
         return selected_variables
     
-    def resolve_variables(self, input: str) -> str:
+    def resolve_variables(self, input: str, forced_ignore: Set[Varname] = set()) -> str:
         expr_type: ExpressionType = Expression.get_expression_type(input)
         target_expr: str = input
         lhs_asn = ''
@@ -246,48 +275,57 @@ class GraphSession:
             target_expr = rhs.strip()
             lhs_asn = lhs.strip() + " = "
 
+            
+
         if expr_type == ExpressionType.FUNCTION:
             parameters = Expression.get_parameters_from_function(input)
-            return lhs_asn + replace_variables(target_expr, self.env, parameters)
+            return lhs_asn + replace_variables(target_expr, self.env, parameters | forced_ignore)
 
-        return lhs_asn + replace_variables(target_expr, self.env)
+        return lhs_asn + replace_variables(target_expr, self.env, force_ignore=forced_ignore)
     
-    def resolve(self, input: str) -> str:
-        eq_resolved_variables = self.resolve_variables(input=input) 
+    def resolve(self, input: str, forced_ignore: Set[Varname] = set()) -> str:
+        eq_resolved_variables = self.resolve_variables(input=input, forced_ignore=forced_ignore) 
+
+        # print(f'stage 1: {eq_resolved_variables}')
         eq_resolved_function_names = resolve_function_names(
             expression=eq_resolved_variables,
             variables=self.env
         )
-        return self.resolve_function_calls(eq_resolved_function_names)
+        # print(f'stage 2: {eq_resolved_function_names}')
+        eq_resolved = self.resolve_function_calls(eq_resolved_function_names, forced_ignore)
+
+        # print(f'stage 3: {eq_resolved}')
+        return eq_resolved
         
-    def resolve_function_calls(self, input: str) -> str:
-        func_names = set(filter(lambda var: '_func' in var and var in input, self.env))
-        # print(f'RESOLVING FUNCTION CALL: {input}')
-        # print(f'FNS: {func_names}')
+    def resolve_function_calls(self, input: str, force_ignore: Set[Varname] = set()) -> str:
+
+        lhs_asn = ''
+        if Expression.get_expression_type(input) == ExpressionType.FUNCTION:
+            force_ignore = Expression.get_parameters_from_function(input)
+            lhs, rhs = input.split('=')
+            lhs_asn = f'{lhs.strip()} = '
+            input = rhs.strip()
+        func_names = set(filter(lambda var: '_func' in var and var in input and var not in force_ignore, self.env))
 
         for func_name in func_names:
-            idx = input.index(func_name)
-            parameters = Expression.get_parameters_from_function(input[idx:])
-
-            print(f'PARAMS: {parameters}')
-            func_params = {int(self.execute(self.resolve_function_calls(v))) for v in parameters}
+            function_signature, function_definition = self.env[func_name]
             pattern = r'{}\((?:[^()]|\((?:[^()]+)\))*\)'.format(func_name)
-
             found = re.findall(pattern, input)
-            print(f'FOUND: {found}')
 
             for match in found:
-                input = input.replace(match, str(self.env[func_name](*func_params)))
+                arguments = Expression.get_parameters_from_function(match)
+                
+                func = f'({substitute_function(function_definition, self.env | dict(zip(function_signature, arguments)), self.env)})'
+                input = input.replace(match, func)
 
-        print(input)
-        return input
+
+        return lhs_asn + input
 
 
-    def execute(self, input: str) -> None:
-
-        input = self.resolve(input=input)
-        print(f'resolved: {input}')
-        expr: Expression = Expression.parse(input=input)
+    def execute(self, input: str, forced_ignore: Set[Varname] = set()) -> None:
+        resolved_input = self.resolve(input=input, forced_ignore=forced_ignore)
+        # print(f'resolved input: {resolved_input}')
+        expr: Expression = Expression.parse(input=resolved_input)
         variables = self.get_variables(varnames=expr.expr_info.varnames)
 
         match (expr.expr_info.expr_type):
@@ -302,50 +340,28 @@ class GraphSession:
                 print(f"{expr_varname} = {result_expression}")
 
             case ExpressionType.FUNCTION:
+          
+                expr_varname = Expression.get_function_name(resolved_input)
+                
 
-                expr_varname = str(expr.expr_info.lhs_varname).split('(')[0] + "_func"
-                self.env[expr_varname] = expr.expr_info.fn
-                print(f"{expr_varname} = {Expression.get_rhs(input)}")
+                function_definition = resolved_input.split("=")[1].strip()
+
+                function_signature: str = Expression.get_parameters_from_function(resolved_input)
+                self.env[expr_varname] = (function_signature, function_definition)
+                # self.func_def_env[expr_varname] = (function_signature, function_definition)
+                print(f"{input.split('=')[0].strip()} = {Expression.get_rhs(resolved_input)}")
 
             case ExpressionType.STATEMENT:
                 try:
                     result_expression = expr.expr_info.fn(**variables)
+                    
                 except Exception as e:
                     print(f"Caught Error (STMT): {e}")
                     return
-                print({result_expression})
-                return result_expression
-            
-
+                print(result_expression)
+           
 if __name__ == "__main__":
     gs = GraphSession.new()
-    # gs.execute(r"2+2")
-    gs.execute(r"x=2+2")
-    # print()
-    # gs.execute(r"y=x+2")
-    # gs.execute(r"y=y+2")
-    # gs.execute(r"v = \frac{x}{y}")
-    # gs.execute(r"v = 0")
-    # gs.execute(r"s=\frac{x}{y}")
-    # gs.execute(r"s=\frac{\frac{x}{y}}{s}")
-    # gs.execute(r"s=\frac{s}{0}")
-    gs.execute(r"h(x) = x*2")
-    # print()
-    gs.execute(r"\frac{\frac{h(h(2) + 2) + 3}{h(\frac{1}{2})}}{2}")
-    print(gs.get_session_variables())
-    # gs.execute(r"x")
-    # gs.execute(r"f(x) = h(x)")
-    # gs.execute(r"v = h(h(2) * 2 + 3)")
-    # gs.execute(r"\frac{ h(h(1)) }{2}")
-
-    print(((12 + 3)/1)/2)
-
-
-
-    
-
-
-
-
-
-
+    gs.execute(r'h(x) = x*2')
+    gs.execute(r'f(x) = x*h(x)')
+    gs.execute(r'f(3)')
