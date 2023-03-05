@@ -90,6 +90,11 @@ def substitute_function(fn: str, variables: Dict[Varname, Any], func_definitions
                 resolved_fn = resolved_fn.replace(places_to_substitute, value)
     return resolved_fn
 
+def symplify_expression(expr_str: str) -> str:
+    from sympy import simplify
+    expr = parse_latex(expr_str)
+    simplified_expr = str(simplify(expr))
+    return simplified_expr
 
 
 class ExpressionType(Enum):
@@ -286,20 +291,27 @@ class GraphSession:
     def resolve(self, input: str, forced_ignore: Set[Varname] = set()) -> str:
         eq_resolved_variables = self.resolve_variables(input=input, forced_ignore=forced_ignore) 
 
-        # print(f'stage 1: {eq_resolved_variables}')
+        print(f'stage 1: {eq_resolved_variables}')
         eq_resolved_function_names = resolve_function_names(
             expression=eq_resolved_variables,
             variables=self.env
         )
-        # print(f'stage 2: {eq_resolved_function_names}')
+        print(f'stage 2: {eq_resolved_function_names}')
         eq_resolved = self.resolve_function_calls(eq_resolved_function_names, forced_ignore)
 
-        # print(f'stage 3: {eq_resolved}')
+        print(f'stage 3: {eq_resolved}')
         return eq_resolved
         
     def resolve_function_calls(self, input: str, force_ignore: Set[Varname] = set()) -> str:
 
         lhs_asn = ''
+
+
+        if Expression.get_expression_type(input) == ExpressionType.ASSIGNMENT:
+            lhs, rhs = input.split('=')
+            lhs_asn = f'{lhs.strip()} = '
+            input = rhs.strip()
+
         if Expression.get_expression_type(input) == ExpressionType.FUNCTION:
             force_ignore = Expression.get_parameters_from_function(input)
             lhs, rhs = input.split('=')
@@ -318,13 +330,14 @@ class GraphSession:
                 func = f'({substitute_function(function_definition, self.env | dict(zip(function_signature, arguments)), self.env)})'
                 input = input.replace(match, func)
 
-
-        return lhs_asn + input
+        return lhs_asn + symplify_expression(input)
 
 
     def execute(self, input: str, forced_ignore: Set[Varname] = set()) -> None:
         resolved_input = self.resolve(input=input, forced_ignore=forced_ignore)
-        # print(f'resolved input: {resolved_input}')
+        print(f'resolved input: {resolved_input}')
+
+
         expr: Expression = Expression.parse(input=resolved_input)
         variables = self.get_variables(varnames=expr.expr_info.varnames)
 
@@ -362,6 +375,9 @@ class GraphSession:
            
 if __name__ == "__main__":
     gs = GraphSession.new()
-    gs.execute(r'h(x) = x*2')
-    gs.execute(r'f(x) = x*h(x)')
-    gs.execute(r'f(3)')
+    gs.execute(r'h(x) = \frac{\frac{1}{2}}{0.5} + x')
+    gs.execute(r'h(7)')
+
+
+
+
