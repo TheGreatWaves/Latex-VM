@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-from expression import (
+from src.expression import (
     Expression,
     ExpressionType,
     replace_variables,
@@ -10,7 +10,7 @@ from expression import (
     symplify_expression,
     unpack,
 )
-from type_defs import EnvironmentVariables, Varname
+from src.type_defs import EnvironmentVariables, Varname
 
 
 @dataclass

@@ -3,8 +3,8 @@ from typing import List
 import pytest
 from _pytest.capture import CaptureFixture
 
-from expression import Expression, pack, unpack
-from graph_session import GraphSession
+from src.expression import Expression, pack, unpack
+from src.graph_session import GraphSession
 
 
 @pytest.mark.parametrize(

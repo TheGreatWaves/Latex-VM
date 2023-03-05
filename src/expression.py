@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sympy import Expr, lambdify, latex, simplify, symbols
 from sympy.parsing.latex import parse_latex
 
-from type_defs import EnvironmentVariables, Varname
+from src.type_defs import EnvironmentVariables, Varname
 
 
 def unpack(value: Varname) -> Optional[Varname]:
