@@ -1,10 +1,11 @@
+import re
 from dataclasses import dataclass
 from enum import Enum
-import re
 
 # Function = Any
-from typing import Optional, Set, Tuple, List, Dict, Any
-from sympy import symbols, lambdify, Expr, Eq, Function
+from typing import Any, Dict, List, Optional, Set, Tuple
+
+from sympy import Expr, lambdify, symbols
 from sympy.parsing.latex import parse_latex
 
 Varname = str
@@ -32,7 +33,7 @@ def self_referential(input: str) -> Tuple[bool, str, str]:
 
 def replace_variables(
     expression: str, variables: Dict[Varname, Any], force_ignore: List[Varname] = list()
-):
+) -> str:
     unpacked_force_ignore = {var[1:-1] for var in force_ignore}
 
     sub_variables = {
@@ -64,15 +65,12 @@ def resolve_function_names(expression: str, variables: Dict[Varname, Any]) -> st
     return expression
 
 
-# def merge_list(lst1, lst2) -> List[Any]:
-
-
 def substitute_function(
     fn: str,
     variables: Dict[Varname, Any],
     func_definitions: Dict[str, Tuple[Set[str], str]] = {},
     force_ignore: List[Varname] = [],
-):
+) -> str:
     resolved_fn: str = fn
     filtered_variables = {
         vn: v for vn, v in variables.items() if vn not in force_ignore
@@ -85,7 +83,7 @@ def substitute_function(
 
             if (
                 "_func" in value
-                and (
+                and (  # noqa: W503
                     function := func_definitions.get(
                         Expression.get_function_name(value)
                     )
@@ -121,7 +119,7 @@ class ExpressionType(Enum):
 
 
 """
-An expression can either be a graphing statement 
+An expression can either be a graphing statement
 expression or an assignment expression.
 """
 
@@ -140,7 +138,7 @@ class Expression:
     expr_info: ExpressionInfo
 
     @staticmethod
-    def is_function(expr_str):
+    def is_function(expr_str: str) -> bool:
         regex = r"[a-zA-Z]+\("
         return re.search(regex, expr_str) is not None
 
@@ -149,12 +147,12 @@ class Expression:
         return raw_equation.split("(")[0]
 
     @staticmethod
-    def __is_function_expression(raw_equation) -> bool:
+    def __is_function_expression(raw_equation: str) -> bool:
         lhs, _ = [expr.strip() for expr in raw_equation.split("=")]
         return Expression.is_function(lhs)
 
     @staticmethod
-    def get_parameters_from_function(function_equation) -> List[Varname]:
+    def get_parameters_from_function(function_equation: str) -> List[Varname]:
         first_param_index: int = function_equation.index("(")
         resolution: int = 1
         idx: int = first_param_index + 1
@@ -172,7 +170,9 @@ class Expression:
             if idx > len(function_equation):
                 raise Exception("Function not closed")
 
-        parameters = function_equation[first_param_index + 1 : idx - 1]
+        parameters = function_equation[
+            (first_param_index + 1) : (idx - 1)  # noqa: E203
+        ]
         return ["({})".format(param.strip()) for param in parameters.split(",")]
 
     @staticmethod
@@ -297,7 +297,7 @@ class GraphSession:
 
         if (
             expr_type == ExpressionType.ASSIGNMENT
-            or expr_type == ExpressionType.FUNCTION
+            or expr_type == ExpressionType.FUNCTION  # noqa: W503
         ):
             lhs, rhs = input.split("=")
             target_expr = rhs.strip()
@@ -428,7 +428,7 @@ class GraphSession:
                     return
                 print(result_expression)
 
-    def clear_session(self):
+    def clear_session(self) -> None:
         self.env.clear()
 
 
