@@ -45,9 +45,13 @@ def replace_variables(expression: str, variables: Dict[Varname, Any], force_igno
     Returns:
         The updated expression with variables replaced by their values.
     """
-    sub_variables = {k: v for k,v in variables.items() if k not in force_ignore}
+
+    unpacked_force_ignore = {var[1:-1] for var in force_ignore}
+
+    sub_variables = {k: v for k,v in variables.items() if k not in unpacked_force_ignore}
 
     for variable, value in sub_variables.items():
+
         pattern = r'\b{}(?=[^()]*\b)'.format(variable)  # Match variable name not inside parentheses
         expression = re.sub(pattern, str(value), expression)
         pattern = r'\b{}(?=\((?:[^()]|\((?:[^()]+)\))*\))'.format(variable)  # Match variable name inside parentheses
@@ -281,7 +285,6 @@ class GraphSession:
             lhs_asn = lhs.strip() + " = "
 
             
-
         if expr_type == ExpressionType.FUNCTION:
             parameters = Expression.get_parameters_from_function(input)
             return lhs_asn + replace_variables(target_expr, self.env, parameters | forced_ignore)
@@ -334,6 +337,12 @@ class GraphSession:
 
 
     def execute(self, input: str, forced_ignore: Set[Varname] = set()) -> None:
+        if len(input) <= 0:
+            return
+        
+        print()
+        print(f'input: {input}')
+
         resolved_input = self.resolve(input=input, forced_ignore=forced_ignore)
         print(f'resolved input: {resolved_input}')
 
@@ -375,9 +384,11 @@ class GraphSession:
            
 if __name__ == "__main__":
     gs = GraphSession.new()
-    gs.execute(r'h(x) = \frac{\frac{1}{2}}{0.5} + x')
-    gs.execute(r'h(7)')
-
-
-
-
+    gs.execute(r'x = 5')
+    gs.execute(r'x')
+    gs.execute(r'y = x + 5')
+    gs.execute(r'y + x')
+    gs.execute(r'f(x) = x + y')
+    gs.execute(r'h(x, y, z) = x + y^2 + \frac{1}{z}')
+    print()
+    print(gs.get_session_variables())
