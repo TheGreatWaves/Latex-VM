@@ -1,12 +1,38 @@
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from sympy import Expr, lambdify, simplify, symbols
+from sympy import Expr, lambdify, latex, simplify, symbols
 from sympy.parsing.latex import parse_latex
 
-from type_defs import EnvironmentVariables, ExpressionStr, Varname
+from type_defs import EnvironmentVariables, Varname
+
+
+def unpack(value: Varname) -> Optional[Varname]:
+    if value[0] != "(":
+        raise Exception("Value not packed")
+
+    idx = 1
+    resolution = 1
+    size = len(value)
+
+    while idx < size and resolution > 0:
+        if value[idx] == "(":
+            resolution += 1
+        elif value[idx] == ")":
+            resolution -= 1
+        idx += 1
+
+    if resolution != 0:
+        raise Exception("Value pack missing closing parenthesis")
+
+    unpacked_value = value[1:-1]
+    return unpacked_value
+
+
+def pack(value: Varname) -> Varname:
+    return "({})".format(value)
 
 
 class ExpressionType(Enum):
@@ -19,26 +45,6 @@ class ExpressionType(Enum):
 An expression can either be a graphing statement
 expression or an assignment expression.
 """
-
-
-def self_referential(input: ExpressionStr) -> Tuple[bool, str, str]:
-    split_eq = [expr.strip() for expr in input.split("=")]
-
-    not_assignment = len(split_eq) == 1
-
-    if not_assignment:
-        return False, input, None
-
-    lhs = split_eq[0]
-    rhs = split_eq[1]
-    return lhs in rhs, lhs, rhs
-
-
-def resolve_self_referential(input: ExpressionStr) -> ExpressionStr:
-    is_referential, lhs, rhs = self_referential(input=input)
-    if is_referential:
-        return lhs + "_1" + "=" + rhs
-    return input
 
 
 @dataclass
@@ -77,8 +83,12 @@ class Expression:
         first_param_index: int = function_equation.index("(")
         resolution: int = 1
         idx: int = first_param_index + 1
+        size = len(function_equation)
 
         while resolution > 0:
+            if idx >= size:
+                raise Exception("Function not closed")
+
             c = function_equation[idx]
 
             if c == ")":
@@ -87,9 +97,6 @@ class Expression:
                 resolution += 1
 
             idx += 1
-
-            if idx > len(function_equation):
-                raise Exception("Function not closed")
 
         parameters = function_equation[(first_param_index):(idx)]  # noqa: E203
         return parameters
@@ -112,7 +119,7 @@ class Expression:
 
     @staticmethod
     def get_expression(raw_equation: str) -> Tuple[ExpressionType, Expr]:
-        expr: Expr = parse_latex(resolve_self_referential(raw_equation))
+        expr: Expr = parse_latex(raw_equation)
         return Expression.get_expression_type(raw_equation=raw_equation), expr
 
     @staticmethod
@@ -120,7 +127,7 @@ class Expression:
         return raw_equation.split("=")[0].strip()
 
     @staticmethod
-    def get_rhs(raw_equation: str) -> str:
+    def get_rhs(raw_equation: str) -> str:  # pragma: no cover
         return raw_equation.split("=")[1].strip()
 
     @staticmethod
@@ -136,7 +143,7 @@ class Expression:
                 return lambdify(args=var_symbols, expr=expr.rhs)
             case ExpressionType.FUNCTION:
                 return lambdify(args=var_symbols, expr=expr.rhs)
-            case ExpressionType.STATEMENT:
+            case _:
                 return lambdify(args=var_symbols, expr=expr)
 
     @staticmethod
@@ -167,8 +174,8 @@ class Expression:
             )
 
         except Exception as e:
-            print(f"Error parsing equation: {e}")
-            return None
+            print(f"GOT ERROR {e}")
+            raise e
 
     @staticmethod
     def __get_variables(expr_type: ExpressionType, expr: Expr) -> List[str]:
@@ -177,7 +184,7 @@ class Expression:
                 return Expression.__extract_variables(expr=expr.rhs)
             case ExpressionType.FUNCTION:
                 return Expression.__extract_variables(expr=expr.rhs)
-            case ExpressionType.STATEMENT:
+            case _:
                 return Expression.__extract_variables(expr=expr)
 
     @staticmethod
@@ -217,19 +224,17 @@ def replace_variables(
 
 
 def resolve_function_names(expression: str, variables: Dict[Varname, Any]) -> str:
-    fname_to_ignore = ""
     if Expression.get_expression_type(expression) == ExpressionType.FUNCTION:
         fname: str = Expression.get_function_name(raw_equation=expression)
-        expression = expression.replace(fname, "{}_func".format(fname))
-        fname_to_ignore = fname
+        expression: str = expression.replace(
+            "{}(".format(fname), "{}_func(".format(fname)
+        )
 
     # Replace function names with their dictionary keys
     for key in variables.keys():
-        if key == fname_to_ignore:
-            continue
-
-        pattern = r"\b{}\(".format(key.split("_")[0])
-        expression = re.sub(pattern, f"{key}(", expression)
+        fname: str = key[: key.rindex("_func")]
+        pattern: str = r"\b{}\(".format(fname)
+        expression: str = re.sub(pattern, f"{key}(", expression)
 
     return expression
 
@@ -241,46 +246,73 @@ def substitute_function(
     force_ignore: List[Varname] = [],
 ) -> str:
     resolved_fn: str = fn
-
     filtered_variables = {}
 
-    for varname, varval in variables.items():
+    for varname, varval in variables.items():  # pragma: no cover
         if varname not in force_ignore:
             filtered_variables[varname] = varval
 
     for varname, varval in func_params.items():
         filtered_variables[varname] = varval
 
-    # print(f'\tfiltered: {filtered_variables}')
-    print(f"\tsubbing into: {fn}")
+    # print(f'fn: {fn}')
+    # print(f'filtered variables: {filtered_variables}')
+
     for varname, value in filtered_variables.items():
         found = re.findall(varname, fn)
-        # print(f'{varname} => {value}')
+
         for places_to_substitute in found:
-            if "_func" in varname:
-                print("GOT FUNC")
-                value = value[1:-1]  # Unwrap
-                function_signature, function_definition = function
+            if "_func" in value:
+                value = unpack(value)  # Unwrap
+                function_signature, function_definition = variables[
+                    Expression.get_function_name(value)
+                ]
                 arguments = Expression.get_parameters_from_function(
                     function_equation=value
                 )
-
                 force_ignore = [
                     elem for elem in force_ignore if arguments not in arguments
                 ]
-
                 resolved_fn = resolved_fn.replace(
                     places_to_substitute,
                     f"({substitute_function(function_definition, variables, dict(zip(function_signature, arguments)), force_ignore)})",
                 )
             else:
                 resolved_fn = resolved_fn.replace(places_to_substitute, value)
-            # print(f'\t\tnext iter: {resolved_fn}')
 
     return resolved_fn
 
 
-def symplify_expression(expr_str: str) -> str:
+def symplify_expression(expr_str: str) -> Optional[str]:
+    expr_type = Expression.get_expression_type(expr_str)
+    is_asn = expr_type == ExpressionType.ASSIGNMENT
+    is_func = expr_type == ExpressionType.FUNCTION
+    lhs_asn = ""
+    ret_val = ""
+    params = list()
+
+    if is_asn or is_func:
+        lhs, rhs = Expression.break_expression(expr_str)
+        expr_str = rhs
+        lhs_asn = "{} = ".format(lhs)
+
+        if is_func:
+            params = Expression.get_parameters_from_function(lhs)
+            params = [unpack(param) for param in params]
+
+    # temporarily replace variables
+    for idx, param in enumerate(params):
+        expr_str = expr_str.replace(param, "p_p_{}".format(idx))
+
+    print(f"parsing: {expr_str}")
+
     expr = parse_latex(expr_str)
-    simplified_expr = str(simplify(expr))
-    return simplified_expr
+    print(expr)
+    simplified_expr = str(latex(simplify(expr)))
+    ret_val = lhs_asn + simplified_expr
+
+    # place variables back
+    for idx, param in enumerate(params):
+        ret_val = ret_val.replace(f"p_{{p_{{{idx}}}}}", param)
+
+    return ret_val

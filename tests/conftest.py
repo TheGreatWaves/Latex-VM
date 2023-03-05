@@ -1,6 +1,6 @@
 import pytest
 
-from python_parse_test import GraphSession
+from graph_session import GraphSession
 
 
 @pytest.fixture()
