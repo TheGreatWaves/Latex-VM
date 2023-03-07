@@ -1,16 +1,17 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-from src.expression import (
+from expression import (
     Expression,
     ExpressionType,
     replace_variables,
     resolve_function_names,
     substitute_function,
     symplify_expression,
+    try_pack,
     unpack,
 )
-from src.type_defs import EnvironmentVariables, Varname
+from type_defs import EnvironmentVariables, Varname
 
 
 @dataclass
@@ -76,21 +77,21 @@ class GraphSession:
             input=input, forced_ignore=forced_ignore
         )
 
-        # print(f"\tstage 1: {eq_resolved_variables}")
+        print(f"\tstage 1: {eq_resolved_variables}")
 
         # Format all function names in the form "<name>_func"
         eq_resolved_function_names = resolve_function_names(
             expression=eq_resolved_variables, variables=self.get_env_functions()
         )
 
-        # print(f"\tstage 2: {eq_resolved_function_names}")
+        print(f"\tstage 2: {eq_resolved_function_names}")
 
         # Substitute all functions and simplify
         eq_resolved = self.resolve_function_calls(
             eq_resolved_function_names, forced_ignore
         )
 
-        # print(f"\tstage 3: {eq_resolved}")
+        print(f"\tstage 3: {eq_resolved}")
 
         return symplify_expression(eq_resolved)
 
@@ -106,8 +107,7 @@ class GraphSession:
 
         if Expression.get_expression_type(input) == ExpressionType.FUNCTION:
             force_ignore = [
-                unpack(param)
-                for param in Expression.get_parameters_from_function(input)
+                (param) for param in Expression.get_parameters_from_function(input)
             ]
             lhs, rhs = input.split("=")
             lhs_asn = f"{lhs.strip()} = "
@@ -141,7 +141,7 @@ class GraphSession:
                 }
                 func = f"({substitute_function(function_definition, self.env, mapped_args, force_ignore)})"
 
-                input = input.replace(function_call_site, func)
+                input = input.replace(function_call_site, try_pack(func))
 
         # print(f'\tstage 3: {lhs_asn}{input}')
         assembled = "{}{}".format(lhs_asn, input)

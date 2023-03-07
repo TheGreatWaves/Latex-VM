@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sympy import Expr, lambdify, latex, simplify, symbols
 from sympy.parsing.latex import parse_latex
 
-from src.type_defs import EnvironmentVariables, Varname
+from type_defs import EnvironmentVariables, Varname
 
 
 def unpack(value: Varname) -> Optional[Varname]:
@@ -33,6 +33,16 @@ def unpack(value: Varname) -> Optional[Varname]:
 
 def pack(value: Varname) -> Varname:
     return "({})".format(value)
+
+
+def try_pack(value: Varname) -> Varname:
+    if len(value) == 0:
+        return "()"
+
+    if value[0] != "(":
+        return pack(value)
+
+    return value
 
 
 class ExpressionType(Enum):
@@ -278,7 +288,7 @@ def substitute_function(
                     f"({substitute_function(function_definition, variables, dict(zip(function_signature, arguments)), force_ignore)})",
                 )
             else:
-                resolved_fn = resolved_fn.replace(places_to_substitute, value)
+                resolved_fn = resolved_fn.replace(places_to_substitute, pack(value))
 
     return resolved_fn
 
@@ -304,15 +314,18 @@ def symplify_expression(expr_str: str) -> Optional[str]:
     for idx, param in enumerate(params):
         expr_str = expr_str.replace(param, "p_p_{}".format(idx))
 
-    print(f"parsing: {expr_str}")
+    print(f"\tstage 3.5: {expr_str}")
 
     expr = parse_latex(expr_str)
-    print(expr)
-    simplified_expr = str(latex(simplify(expr)))
-    ret_val = lhs_asn + simplified_expr
+    simplified_expr = simplify(expr)
+    print(f"\tstage 3.6: {simplified_expr}")
+    simplified_latex_expr = str(latex(simplified_expr))
+    print(f"\tstage 3.7: {simplified_latex_expr}")
+    ret_val = lhs_asn + simplified_latex_expr
 
     # place variables back
     for idx, param in enumerate(params):
         ret_val = ret_val.replace(f"p_{{p_{{{idx}}}}}", param)
 
+    print(f"\tstage 4: {ret_val}")
     return ret_val
