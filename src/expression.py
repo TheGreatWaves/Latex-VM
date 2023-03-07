@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from sympy import Expr, lambdify, latex, simplify, symbols
 from sympy.parsing.latex import parse_latex
 
-from type_defs import EnvironmentVariables, Varname
+from src.type_defs import EnvironmentVariables, Varname
 
 
 def unpack(value: Varname) -> Optional[Varname]:
@@ -108,7 +108,7 @@ class Expression:
 
             idx += 1
 
-        parameters = function_equation[(first_param_index):(idx)]  # noqa: E203
+        parameters = function_equation[first_param_index:(idx)]  # noqa: E203
         return parameters
 
     @staticmethod
@@ -116,7 +116,7 @@ class Expression:
         parameters = Expression.get_parameters_str_from_function(function_equation)[
             1:-1
         ]
-        return ["({})".format(param.strip()) for param in parameters.split(",")]
+        return ["{}".format(param.strip()) for param in parameters.split(",")]
 
     @staticmethod
     def get_expression_type(raw_equation: str) -> ExpressionType:
@@ -220,12 +220,9 @@ class Expression:
 def replace_variables(
     expression: str, variables: Dict[Varname, Any], force_ignore: List[Varname] = list()
 ) -> str:
-    unpacked_force_ignore = {var[1:-1] for var in force_ignore}
 
     sub_variables = {
-        k: v
-        for k, v in variables.items()
-        if k in expression and k not in unpacked_force_ignore
+        k: v for k, v in variables.items() if k in expression and k not in force_ignore
     }
 
     for variable, value in sub_variables.items():
@@ -267,13 +264,13 @@ def substitute_function(
 
     # print(f'fn: {fn}')
     # print(f'filtered variables: {filtered_variables}')
+    # print(f'force ignore variables: {force_ignore}')
 
     for varname, value in filtered_variables.items():
         found = re.findall(varname, fn)
 
         for places_to_substitute in found:
             if "_func" in value:
-                value = unpack(value)  # Unwrap
                 function_signature, function_definition = variables[
                     Expression.get_function_name(value)
                 ]
@@ -308,24 +305,27 @@ def symplify_expression(expr_str: str) -> Optional[str]:
 
         if is_func:
             params = Expression.get_parameters_from_function(lhs)
-            params = [unpack(param) for param in params]
+            params = [param for param in params]
 
     # temporarily replace variables
     for idx, param in enumerate(params):
         expr_str = expr_str.replace(param, "p_p_{}".format(idx))
 
-    print(f"\tstage 3.5: {expr_str}")
+    # print(f"\tstage 3.5: {expr_str}")
 
     expr = parse_latex(expr_str)
+
     simplified_expr = simplify(expr)
-    print(f"\tstage 3.6: {simplified_expr}")
+    # print(f"\tstage 3.6: {simplified_expr}")
+
     simplified_latex_expr = str(latex(simplified_expr))
-    print(f"\tstage 3.7: {simplified_latex_expr}")
+    # print(f"\tstage 3.7: {simplified_latex_expr}")
+
     ret_val = lhs_asn + simplified_latex_expr
 
     # place variables back
     for idx, param in enumerate(params):
         ret_val = ret_val.replace(f"p_{{p_{{{idx}}}}}", param)
 
-    print(f"\tstage 4: {ret_val}")
+    # print(f"\tstage 4: {ret_val}")
     return ret_val

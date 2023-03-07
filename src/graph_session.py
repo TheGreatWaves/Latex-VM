@@ -1,17 +1,15 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
-from expression import (
+from src.expression import (
     Expression,
     ExpressionType,
     replace_variables,
     resolve_function_names,
     substitute_function,
     symplify_expression,
-    try_pack,
-    unpack,
 )
-from type_defs import EnvironmentVariables, Varname
+from src.type_defs import EnvironmentVariables, Varname
 
 
 @dataclass
@@ -48,6 +46,10 @@ class GraphSession:
             lhs, rhs = Expression.break_expression(raw_expr=input)
             target_expr = rhs
             lhs_asn = lhs + " = "
+            if expr_type == ExpressionType.FUNCTION:
+                forced_ignore = Expression.get_parameters_from_function(input)
+
+        # print(f'force ignore: {forced_ignore}')
 
         if expr_type == ExpressionType.FUNCTION:
             parameters = Expression.get_parameters_from_function(input)
@@ -77,21 +79,21 @@ class GraphSession:
             input=input, forced_ignore=forced_ignore
         )
 
-        print(f"\tstage 1: {eq_resolved_variables}")
+        # print(f"\tstage 1: {eq_resolved_variables}")
 
         # Format all function names in the form "<name>_func"
         eq_resolved_function_names = resolve_function_names(
             expression=eq_resolved_variables, variables=self.get_env_functions()
         )
 
-        print(f"\tstage 2: {eq_resolved_function_names}")
+        # print(f"\tstage 2: {eq_resolved_function_names}")
 
         # Substitute all functions and simplify
         eq_resolved = self.resolve_function_calls(
             eq_resolved_function_names, forced_ignore
         )
 
-        print(f"\tstage 3: {eq_resolved}")
+        # print(f"\tstage 3: {eq_resolved}")
 
         return symplify_expression(eq_resolved)
 
@@ -112,6 +114,8 @@ class GraphSession:
             lhs, rhs = input.split("=")
             lhs_asn = f"{lhs.strip()} = "
             input = rhs.strip()
+
+        # print(f'ignore: {force_ignore}')
 
         func_names = set(
             filter(
@@ -136,12 +140,12 @@ class GraphSession:
                 function_signature, function_definition = self.env[func_name]
 
                 mapped_args = {
-                    unpack(k): v
-                    for k, v in (dict(zip(function_signature, raw_args))).items()
+                    k: v for k, v in (dict(zip(function_signature, raw_args))).items()
                 }
+                # print(f'mapped args: {mapped_args}')
                 func = f"({substitute_function(function_definition, self.env, mapped_args, force_ignore)})"
-
-                input = input.replace(function_call_site, try_pack(func))
+                # print(f'func: {func}')
+                input = input.replace(function_call_site, func)
 
         # print(f'\tstage 3: {lhs_asn}{input}')
         assembled = "{}{}".format(lhs_asn, input)
