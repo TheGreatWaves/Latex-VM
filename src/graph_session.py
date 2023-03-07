@@ -46,8 +46,6 @@ class GraphSession:
             lhs, rhs = Expression.break_expression(raw_expr=input)
             target_expr = rhs
             lhs_asn = lhs + " = "
-            if expr_type == ExpressionType.FUNCTION:
-                forced_ignore = Expression.get_parameters_from_function(input)
 
         # print(f'force ignore: {forced_ignore}')
 
