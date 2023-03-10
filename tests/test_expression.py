@@ -71,6 +71,14 @@ def test_pack(input: str, exp: str):
 
 
 @pytest.mark.parametrize(
+    "input, exp",
+    [("2", "(2)"), ("hello", "(hello)"), ("(x*y)", "((x*y))")],
+)
+def test_unpack(input: str, exp: str):
+    unpack(exp) == input
+
+
+@pytest.mark.parametrize(
     "exc, exp",
     [
         ("v = 5", "5"),
@@ -155,3 +163,30 @@ def test_stmt(gs: GraphSession, capfd: CaptureFixture[str]):
     gs.execute(r"f(f(2))")
     out, _ = capfd.readouterr()
     assert out.endswith("16\n")
+
+
+def test_long_param_names(gs: GraphSession):
+    gs.execute(
+        "f(some_long_var_name, some_long_var_name_2) = some_long_var_name * some_long_var_name_2"
+    )
+
+    if (f := gs.get_env_functions().get("f")) is not None:
+        param, definition = f
+
+        assert len(param) == 2
+        assert param == ["some_long_varname", "some_long_var_name_2"]
+        assert definition == "some_long_var_name name_long_var_name_2"
+
+
+def test_env_variable_overwrite(gs: GraphSession):
+    gs.execute("x = 5")
+    gs.execute("y = 5")
+
+    # X overwritten here
+    gs.execute("x = 5 + y")
+    gs.execute("double(number) = 2 * number")
+
+    # X overwritten again
+    gs.execute("x = double(x)")
+
+    assert gs.get_env_variables() == {"x": "20", "y": "5"}

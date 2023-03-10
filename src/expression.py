@@ -27,22 +27,12 @@ def unpack(value: Varname) -> Optional[Varname]:
     if resolution != 0:
         raise Exception("Value pack missing closing parenthesis")
 
-    unpacked_value = value[1:-1]
+    unpacked_value = value[1:idx]
     return unpacked_value
 
 
 def pack(value: Varname) -> Varname:
     return "({})".format(value)
-
-
-def try_pack(value: Varname) -> Varname:
-    if len(value) == 0:
-        return "()"
-
-    if value[0] != "(":
-        return pack(value)
-
-    return value
 
 
 class ExpressionType(Enum):
@@ -309,7 +299,9 @@ def symplify_expression(expr_str: str) -> Optional[str]:
 
     # temporarily replace variables
     for idx, param in enumerate(params):
-        expr_str = expr_str.replace(param, "p_p_{}".format(idx))
+        pat = r"\b{}\b".format(param)
+        temp_sub_str = "p_p_{}".format(idx)
+        expr_str = re.sub(pat, temp_sub_str, expr_str)
 
     # print(f"\tstage 3.5: {expr_str}")
 
