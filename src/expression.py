@@ -260,22 +260,22 @@ def substitute_function(
         found = re.findall(varname, fn)
 
         for places_to_substitute in found:
-            if "_func" in value:
-                function_signature, function_definition = variables[
-                    Expression.get_function_name(value)
-                ]
-                arguments = Expression.get_parameters_from_function(
-                    function_equation=value
-                )
-                force_ignore = [
-                    elem for elem in force_ignore if arguments not in arguments
-                ]
-                resolved_fn = resolved_fn.replace(
-                    places_to_substitute,
-                    f"({substitute_function(function_definition, variables, dict(zip(function_signature, arguments)), force_ignore)})",
-                )
-            else:
-                resolved_fn = resolved_fn.replace(places_to_substitute, pack(value))
+            # if "_func" in value:
+            #     function_signature, function_definition = variables[
+            #         Expression.get_function_name(value)
+            #     ]
+            #     arguments = Expression.get_parameters_from_function(
+            #         function_equation=value
+            #     )
+            #     force_ignore = [
+            #         elem for elem in force_ignore if arguments not in arguments
+            #     ]
+            #     resolved_fn = resolved_fn.replace(
+            #         places_to_substitute,
+            #         f"({substitute_function(function_definition, variables, dict(zip(function_signature, arguments)), force_ignore)})",
+            #     )
+            # else:
+            resolved_fn = resolved_fn.replace(places_to_substitute, pack(value))
 
     return resolved_fn
 

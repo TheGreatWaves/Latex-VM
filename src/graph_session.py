@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -27,8 +28,8 @@ class GraphSession:
         selected_variables: EnvironmentVariables = {}
 
         for env_varname, value in self.env.items():
-            if (name := str(env_varname)) in varnames:
-                selected_variables[name] = value
+            if env_varname in varnames:
+                selected_variables[env_varname] = value
 
         return selected_variables
 
@@ -66,7 +67,7 @@ class GraphSession:
             if "_func" not in varname
         }
 
-    def get_env_functions(self) -> EnvironmentVariables:
+    def get_session_functions(self) -> EnvironmentVariables:
         return {
             varname: value for varname, value in self.env.items() if "_func" in varname
         }
@@ -81,7 +82,7 @@ class GraphSession:
 
         # Format all function names in the form "<name>_func"
         eq_resolved_function_names = resolve_function_names(
-            expression=eq_resolved_variables, variables=self.get_env_functions()
+            expression=eq_resolved_variables, variables=self.get_session_functions()
         )
 
         # print(f"\tstage 2: {eq_resolved_function_names}")
@@ -99,53 +100,51 @@ class GraphSession:
         self, input: str, force_ignore: List[Varname] = list()
     ) -> str:
         lhs_asn = ""
+        expression_type: ExpressionType = Expression.get_expression_type(input)
 
-        if Expression.get_expression_type(input) == ExpressionType.ASSIGNMENT:
-            lhs, rhs = input.split("=")
-            lhs_asn = f"{lhs.strip()} = "
-            input = rhs.strip()
+        if (
+            expression_type == ExpressionType.ASSIGNMENT
+            or expression_type == ExpressionType.FUNCTION  # noqa: W503
+        ):
+            lhs, rhs = Expression.break_expression(raw_expr=input)
+            lhs_asn = "{} = ".format(lhs)
+            input = rhs
 
-        if Expression.get_expression_type(input) == ExpressionType.FUNCTION:
-            force_ignore = [
-                (param) for param in Expression.get_parameters_from_function(input)
-            ]
-            lhs, rhs = input.split("=")
-            lhs_asn = f"{lhs.strip()} = "
-            input = rhs.strip()
-
-        # print(f'ignore: {force_ignore}')
+            if expression_type == ExpressionType.FUNCTION:
+                force_ignore = [
+                    (param) for param in Expression.get_parameters_from_function(lhs)
+                ]
 
         func_names = set(
             filter(
-                lambda var: ("_func" in var)
-                and (var in input)  # noqa: W503
+                lambda var: (var in input)  # noqa: W503
                 and (var not in force_ignore),  # noqa: W503
-                self.env,
+                self.get_session_functions(),
             )
         )
 
         for func_name in func_names:
-            while func_name in input:
-                fn_idx = input.index(func_name)
-                if fn_idx > 0 and input[fn_idx - 1].isalpha():
-                    continue
+            while match := re.search(r"\b{}".format(func_name), input):
 
+                # Obtain the function call site
                 function_call_site = Expression.capture_function(
-                    input=input, func_name=func_name
+                    input=input[match.start() :], func_name=func_name  # noqa: E203
                 )
 
+                # Get the arguments passed into the function
                 raw_args = Expression.get_parameters_from_function(function_call_site)
-                function_signature, function_definition = self.env[func_name]
 
+                # Map arguments with function signature and definition
+                function_signature, function_definition = self.env[func_name]
                 mapped_args = {
                     k: v for k, v in (dict(zip(function_signature, raw_args))).items()
                 }
-                # print(f'mapped args: {mapped_args}')
+
+                # Complete the substitution and replace
                 func = f"({substitute_function(function_definition, self.env, mapped_args, force_ignore)})"
-                # print(f'func: {func}')
+
                 input = input.replace(function_call_site, func)
 
-        # print(f'\tstage 3: {lhs_asn}{input}')
         assembled = "{}{}".format(lhs_asn, input)
 
         return assembled
