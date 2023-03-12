@@ -198,22 +198,22 @@ def test_use_of_existing_variable(gs: GraphSession):
     gs.execute("y = 5")
 
     # grabs x from the environment to be used in the function
-    gs.execute("double(n) = nx")
+    gs.execute("double(n) = n x")
     gs.execute("var1 = double(5)")
     assert gs.get_session_variables().get("var1") == "10"
 
-    gs.execute("mult(n, x) = nx")
+    gs.execute("mult(n, x) = n x")
     gs.execute("var2 = mult(5, 2)")
     assert gs.get_session_variables().get("var2") == "10"
 
-    gs.execute("mult(n, x) = nx")
+    gs.execute("mult(n, x) = n x")
     gs.execute("var3 = mult(5, x)")
     assert gs.get_session_variables().get("var3") == "10"
 
 
 def test_func_name_absolute(gs: GraphSession):
     gs.execute("f(x) = x")
-    gs.execute("some_f(x) = xx")
+    gs.execute("some_f(x) = x x")
 
     gs.execute("v1 = f(2)")
     gs.execute("v2 = some_f(2)")
@@ -227,9 +227,24 @@ def test_func_name_absolute(gs: GraphSession):
 
 def test_deeply_nested(gs: GraphSession):
     gs.execute("f(x, y) = x + y")
-    gs.execute("some_f(x) = xx")
+    gs.execute("some_f(x) = x x")
     gs.execute("some_other_f(x) = x*3")
     gs.execute(r"v1 = f(some_other_f(some_f(2)), \frac{some_other_f(some_f(2))}{2})")
 
     env_vars: EnvironmentVariables = gs.get_session_variables()
-    assert env_vars.get("v1") == "18"
+    assert env_vars.get("v1") == "18.0"
+
+
+def test_empty_execution(gs: GraphSession):
+    assert len(gs.get_session_variables()) == 0
+    gs.execute("")
+    assert len(gs.get_session_variables()) == 0
+
+
+# def test_error_raised_assignment(gs: GraphSession):
+#     # with pytest.raises(Exception):
+#     gs.execute("g(x, y) = x + y")
+#     # Missing arg
+#     gs.execute("v = g(1)")
+
+#     assert len(gs.get_env_variables()) == 1
