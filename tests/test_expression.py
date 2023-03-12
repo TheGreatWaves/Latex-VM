@@ -272,7 +272,7 @@ def test_try_running():
     assert res2 == 2
 
 
-def test_simplifying_equation():
+def test_simplifying_statement_expression():
     short_equation: str = "2 + 2 + 2 + 2"
     simplified_short_equation: str = try_simplify_expression(short_equation)
     assert simplified_short_equation == "8"
@@ -280,3 +280,23 @@ def test_simplifying_equation():
     long_equation: str = r"g\left(x,\ y\right)\ =\frac{w\left(\sqrt{y\ ^{\frac{\sqrt{\frac{f\left(w\left(x\right)\right)\cdot2\ +\ y}{\sqrt{w\left(f\left(x\right)+w\left(2\right)\right)}\cdot3}}}{w\left(24\right)}}}\right)}{2\ \cdot\ \ln\ 2}"
     simplified_long_equation: str = try_simplify_expression(long_equation)
     assert simplified_long_equation == long_equation
+
+
+def test_simplifying_function_expression():
+    short_function_equation: str = "f(x) = 2 + 2 + 2 + 2 + x"
+    simplified_function_short_equation: str = try_simplify_expression(
+        short_function_equation
+    )
+    assert simplified_function_short_equation == "f(x) = x + 8"
+
+    short_function_equation: str = "f(x, y) = x + x + x + y"
+    simplified_function_short_equation: str = try_simplify_expression(
+        short_function_equation
+    )
+    assert simplified_function_short_equation == "f(x, y) = 3 x + y"
+
+
+def test_simplifying_assignment_expression():
+    short_equation: str = "v = 2 + 2 + 2 + 2"
+    simplified_short_equation: str = try_simplify_expression(short_equation)
+    assert simplified_short_equation == "v = 8"
