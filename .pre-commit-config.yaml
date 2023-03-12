@@ -17,7 +17,8 @@ repos:
           - flake8-annotations
         # ANN101 - Ignoring self annotation
         # E501 - Clashes with black
-        args: ["--ignore=ANN101, E501"]
+        # E203 - : Clashes with black
+        args: ["--ignore=ANN101, E501, E203"]
   - repo: https://github.com/psf/black
     rev: 22.6.0
     hooks:
