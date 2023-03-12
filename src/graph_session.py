@@ -130,7 +130,6 @@ class GraphSession:
 
         for func_name in func_names:
             while match := re.search(r"\b{}".format(func_name), input):
-
                 # Obtain the function call site
                 function_call_site = Expression.capture_function(
                     input=input[match.start() :], func_name=func_name  # noqa: E203

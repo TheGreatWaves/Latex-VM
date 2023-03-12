@@ -222,7 +222,6 @@ class Expression:
 def replace_variables(
     expression: str, variables: Dict[Varname, Any], force_ignore: List[Varname] = list()
 ) -> str:
-
     sub_variables = {
         k: v for k, v in variables.items() if k in expression and k not in force_ignore
     }
@@ -234,7 +233,6 @@ def replace_variables(
 
 def resolve_function_names(expression: str, variables: Dict[Varname, Any]) -> str:
     if Expression.get_expression_type(expression) == ExpressionType.FUNCTION:
-
         fname: str = Expression.get_function_name(raw_equation=expression)
         expression: str = expression.replace(
             "{}(".format(fname), "{}_func(".format(fname)
@@ -302,7 +300,6 @@ def try_simplify_expression(expr_str: str) -> Optional[str]:
 
 
 def simplify_expression(expr_str: str) -> Optional[str]:
-
     expr_type = Expression.get_expression_type(expr_str)
     is_asn = expr_type == ExpressionType.ASSIGNMENT
     is_func = expr_type == ExpressionType.FUNCTION

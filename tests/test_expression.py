@@ -4,7 +4,13 @@ from typing import List
 import pytest
 from _pytest.capture import CaptureFixture
 
-from src.expression import Expression, pack, try_running, unpack
+from src.expression import (
+    Expression,
+    pack,
+    try_running,
+    try_simplify_expression,
+    unpack,
+)
 from src.graph_session import GraphSession
 from src.type_defs import EnvironmentVariables
 
@@ -256,11 +262,21 @@ def test_try_running():
     assert res is None
 
     def delayed_return() -> int:
-        sleep(2)
+        sleep(1)
         return 2
 
-    res1 = try_running(delayed_return, 1.5)
+    res1 = try_running(delayed_return, 0.5)
     assert res1 is None
 
     res2 = try_running(delayed_return, 3)
     assert res2 == 2
+
+
+def test_simplifying_equation():
+    short_equation: str = "2 + 2 + 2 + 2"
+    simplified_short_equation: str = try_simplify_expression(short_equation)
+    assert simplified_short_equation == "8"
+
+    long_equation: str = r"g\left(x,\ y\right)\ =\frac{w\left(\sqrt{y\ ^{\frac{\sqrt{\frac{f\left(w\left(x\right)\right)\cdot2\ +\ y}{\sqrt{w\left(f\left(x\right)+w\left(2\right)\right)}\cdot3}}}{w\left(24\right)}}}\right)}{2\ \cdot\ \ln\ 2}"
+    simplified_long_equation: str = try_simplify_expression(long_equation)
+    assert simplified_long_equation == long_equation
