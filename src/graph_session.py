@@ -8,7 +8,7 @@ from src.expression import (
     replace_variables,
     resolve_function_names,
     substitute_function,
-    symplify_expression,
+    try_simplify_expression,
 )
 from src.type_defs import EnvironmentVariables, Varname
 
@@ -46,7 +46,7 @@ class GraphSession:
         ):
             lhs, rhs = Expression.break_expression(raw_expr=input)
             target_expr = rhs
-            lhs_asn = lhs + " = "
+            lhs_asn = lhs + "="
 
         # print(f'force ignore: {forced_ignore}')
 
@@ -73,6 +73,11 @@ class GraphSession:
         }
 
     def resolve(self, input: str, forced_ignore: List[Varname] = list()) -> str:
+        input = re.sub(r"\\left", "", input)
+        input = re.sub(r"\\right", "", input)
+        # input = re.sub(r'\\cdot', " *", input)
+        input = re.sub(r"\\ ", "", input)
+
         # Resolve all variables
         eq_resolved_variables = self.resolve_variables(
             input=input, forced_ignore=forced_ignore
@@ -94,7 +99,7 @@ class GraphSession:
 
         # print(f"\tstage 3: {eq_resolved}")
 
-        return symplify_expression(eq_resolved)
+        return eq_resolved
 
     def resolve_function_calls(
         self, input: str, force_ignore: List[Varname] = list()
@@ -149,13 +154,15 @@ class GraphSession:
 
         return assembled
 
-    def execute(self, input: str) -> None:
+    def execute(self, input: str, simplify: bool = False) -> None:
         if len(input) <= 0:
             return
 
-        # print(f'input: {input}')
-
         resolved_input = self.resolve(input=input)
+
+        if simplify:
+            resolved_input = try_simplify_expression(expr_str=resolved_input)
+
         expr: Expression = Expression.parse(input=resolved_input)
         variables = self.get_variables(varnames=expr.expr_info.varnames)
 
@@ -173,7 +180,7 @@ class GraphSession:
             case ExpressionType.FUNCTION:
                 expr_varname = Expression.get_function_name(resolved_input)
 
-                function_definition = resolved_input.split("=")[1].strip()
+                function_definition = Expression.get_rhs(resolved_input)
 
                 function_signature: str = Expression.get_parameters_from_function(
                     resolved_input

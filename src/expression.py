@@ -1,12 +1,19 @@
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 from sympy import Expr, lambdify, latex, simplify, symbols
 from sympy.parsing.latex import parse_latex
+from timeout_decorator import timeout
 
 from src.type_defs import EnvironmentVariables, Varname
+
+T = TypeVar("T")
+TimeoutFunction = Callable[[], T]
+
+
+ASSIGNMENT_TOKEN: str = "="
 
 
 def unpack(value: Varname) -> Optional[Varname]:
@@ -61,8 +68,13 @@ class Expression:
 
     @staticmethod
     def break_expression(raw_expr: str) -> Tuple[str, str]:
-        lhs, rhs = raw_expr.split("=")
-        return lhs.strip(), rhs.strip()
+        try:
+            # First index of "="
+            asn_idx = raw_expr.index("=")
+            lhs, rhs = raw_expr[:asn_idx], raw_expr[asn_idx + 1 :]
+            return lhs.strip(), rhs.strip()
+        except Exception:
+            return raw_expr, ""
 
     @staticmethod
     def is_function(expr_str: str) -> bool:
@@ -75,7 +87,7 @@ class Expression:
 
     @staticmethod
     def is_function_expression(raw_equation: str) -> bool:
-        lhs, _ = [expr.strip() for expr in raw_equation.split("=")]
+        lhs, _ = Expression.break_expression(raw_expr=raw_equation)
         return Expression.is_function(lhs)
 
     @staticmethod
@@ -214,14 +226,15 @@ def replace_variables(
     sub_variables = {
         k: v for k, v in variables.items() if k in expression and k not in force_ignore
     }
-
     for variable, value in sub_variables.items():
-        expression = expression.replace(variable, value)
+        pat = r"(?<![a-zA-Z\\]){}(?![a-zA-Z])".format(variable)
+        expression = re.sub(pat, value, expression)
     return expression
 
 
 def resolve_function_names(expression: str, variables: Dict[Varname, Any]) -> str:
     if Expression.get_expression_type(expression) == ExpressionType.FUNCTION:
+
         fname: str = Expression.get_function_name(raw_equation=expression)
         expression: str = expression.replace(
             "{}(".format(fname), "{}_func(".format(fname)
@@ -252,35 +265,46 @@ def substitute_function(
     for varname, varval in func_params.items():
         filtered_variables[varname] = varval
 
-    # print(f'fn: {fn}')
-    # print(f'filtered variables: {filtered_variables}')
-    # print(f'force ignore variables: {force_ignore}')
-
     for varname, value in filtered_variables.items():
-        found = re.findall(varname, fn)
+        pos = 0
+        pat = r"\b{}\b".format(re.escape(varname))
 
-        for places_to_substitute in found:
-            # if "_func" in value:
-            #     function_signature, function_definition = variables[
-            #         Expression.get_function_name(value)
-            #     ]
-            #     arguments = Expression.get_parameters_from_function(
-            #         function_equation=value
-            #     )
-            #     force_ignore = [
-            #         elem for elem in force_ignore if arguments not in arguments
-            #     ]
-            #     resolved_fn = resolved_fn.replace(
-            #         places_to_substitute,
-            #         f"({substitute_function(function_definition, variables, dict(zip(function_signature, arguments)), force_ignore)})",
-            #     )
-            # else:
-            resolved_fn = resolved_fn.replace(places_to_substitute, pack(value))
+        while m := re.search(pat, resolved_fn[pos:]):
+            start, end = m.span()
+            replacement = pack(value)
+            resolved_fn = (
+                resolved_fn[: pos + start] + replacement + resolved_fn[pos + end :]
+            )
+            pos += start + len(replacement)
 
     return resolved_fn
 
 
-def symplify_expression(expr_str: str) -> Optional[str]:
+def try_running(func: TimeoutFunction[T], timeout_value: float) -> Optional[T]:
+    @timeout(timeout_value)
+    def f() -> T:
+        return func()
+
+    try:
+        result: T = f()
+        return result
+    except TimeoutError:
+        pass
+    finally:
+        return None
+
+
+def try_simplify_expression(expr_str: str) -> Optional[str]:
+    simplified_eq = try_running(lambda: simplify_expression(expr_str), 3.0)
+
+    if simplified_eq is not None:
+        return simplified_eq
+    else:
+        return expr_str
+
+
+def simplify_expression(expr_str: str) -> Optional[str]:
+
     expr_type = Expression.get_expression_type(expr_str)
     is_asn = expr_type == ExpressionType.ASSIGNMENT
     is_func = expr_type == ExpressionType.FUNCTION
@@ -303,15 +327,9 @@ def symplify_expression(expr_str: str) -> Optional[str]:
         temp_sub_str = "p_p_{}".format(idx)
         expr_str = re.sub(pat, temp_sub_str, expr_str)
 
-    # print(f"\tstage 3.5: {expr_str}")
-
     expr = parse_latex(expr_str)
-
     simplified_expr = simplify(expr)
-    # print(f"\tstage 3.6: {simplified_expr}")
-
     simplified_latex_expr = str(latex(simplified_expr))
-    # print(f"\tstage 3.7: {simplified_latex_expr}")
 
     ret_val = lhs_asn + simplified_latex_expr
 
@@ -319,5 +337,7 @@ def symplify_expression(expr_str: str) -> Optional[str]:
     for idx, param in enumerate(params):
         ret_val = ret_val.replace(f"p_{{p_{{{idx}}}}}", param)
 
-    # print(f"\tstage 4: {ret_val}")
+    # These parens don't play nice, we need to remove them
+    ret_val = re.sub(r"\\left", "", ret_val)
+    ret_val = re.sub(r"\\right", "", ret_val)
     return ret_val
