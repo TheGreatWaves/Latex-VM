@@ -52,13 +52,13 @@ def test_self_referential(gs: GraphSession):
     gs.execute("x=2")
     gs.execute("x=x+2")
     gs.execute("x=x")
-    assert gs.get_session_variables()["x"] == "4"
+    assert gs.get_env()["x"] == "4"
 
 
 def test_raw_expr(gs: GraphSession):
     gs.execute("x=2")
     gs.execute("x")
-    assert gs.get_session_variables()["x"] == "2"
+    assert gs.get_env()["x"] == "2"
 
 
 @pytest.mark.parametrize(
@@ -114,7 +114,7 @@ def test_var_chaining(gs: GraphSession, commands: List[str], exp: str):
         gs.execute(command)
 
     lhs, rhs = Expression.break_expression(exp)
-    assert gs.get_session_variables()[lhs] == rhs
+    assert gs.get_env()[lhs] == rhs
 
 
 @pytest.mark.parametrize(
@@ -142,7 +142,7 @@ def test_function_declaration(gs: GraphSession, commands: List[str], exp: str):
     for command in commands:
         gs.execute(command)
 
-    assert gs.get_session_variables()["ans"] == exp
+    assert gs.get_env()["ans"] == exp
 
 
 def test_something(gs: GraphSession):
@@ -178,7 +178,7 @@ def test_long_param_names(gs: GraphSession):
         "f(some_long_var_name, some_long_var_name_2) = some_long_var_name * some_long_var_name_2"
     )
 
-    if (f := gs.get_session_functions().get("f")) is not None:
+    if (f := gs.get_env_functions().get("f")) is not None:
         param, definition = f
 
         assert len(param) == 2
@@ -207,15 +207,15 @@ def test_use_of_existing_variable(gs: GraphSession):
     # grabs x from the environment to be used in the function
     gs.execute("double(n) = n x")
     gs.execute("var1 = double(5)")
-    assert gs.get_session_variables().get("var1") == "10"
+    assert gs.get_env().get("var1") == "10"
 
     gs.execute("mult(n, x) = n x")
     gs.execute("var2 = mult(5, 2)")
-    assert gs.get_session_variables().get("var2") == "10"
+    assert gs.get_env().get("var2") == "10"
 
     gs.execute("mult(n, x) = n x")
     gs.execute("var3 = mult(5, x)")
-    assert gs.get_session_variables().get("var3") == "10"
+    assert gs.get_env().get("var3") == "10"
 
 
 def test_func_name_absolute(gs: GraphSession):
@@ -225,7 +225,7 @@ def test_func_name_absolute(gs: GraphSession):
     gs.execute("v1 = f(2)")
     gs.execute("v2 = some_f(2)")
 
-    env_vars: EnvironmentVariables = gs.get_session_variables()
+    env_vars: EnvironmentVariables = gs.get_env()
     assert env_vars is not None
 
     assert env_vars.get("v1") == "2"
@@ -238,14 +238,14 @@ def test_deeply_nested(gs: GraphSession):
     gs.execute("some_other_f(x) = x*3")
     gs.execute(r"v1 = f(some_other_f(some_f(2)), \frac{some_other_f(some_f(2))}{2})")
 
-    env_vars: EnvironmentVariables = gs.get_session_variables()
+    env_vars: EnvironmentVariables = gs.get_env()
     assert env_vars.get("v1") == "18.0"
 
 
 def test_empty_execution(gs: GraphSession):
-    assert len(gs.get_session_variables()) == 0
+    assert len(gs.get_env()) == 0
     gs.execute("")
-    assert len(gs.get_session_variables()) == 0
+    assert len(gs.get_env()) == 0
 
 
 def test_break_expression():
@@ -300,3 +300,23 @@ def test_simplifying_assignment_expression():
     short_equation: str = "v = 2 + 2 + 2 + 2"
     simplified_short_equation: str = try_simplify_expression(short_equation)
     assert simplified_short_equation == "v = 8"
+
+
+def test_enabling_simplify(gs: GraphSession):
+    gs.execute("f(x) = x + x + x + x")
+    assert gs.get_env_functions().get("f_func")[1] == "x + x + x + x"
+
+    gs.execute("f(x) = x + x + x + x", True)
+    assert gs.get_env_functions().get("f_func")[1] == "4 x"
+
+
+def test_clear_env(gs: GraphSession):
+    gs.execute("f(x) = x + x + x + x")
+    gs.execute("x = 2 + 2 + 2 + 2")
+    gs.execute("h = 2 + 1 + 3")
+
+    assert len(gs.get_env()) == 3
+
+    gs.clear_session()
+
+    assert len(gs.get_env()) == 0

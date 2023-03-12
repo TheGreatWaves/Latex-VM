@@ -22,10 +22,12 @@ class GraphSession:
     def new() -> "GraphSession":
         return GraphSession(env={})
 
-    def get_session_variables(self) -> EnvironmentVariables:
+    def get_env(self) -> EnvironmentVariables:
         return self.env
 
-    def get_variables(self, varnames: Optional[List[Varname]]) -> EnvironmentVariables:
+    def get_selected_env_variables(
+        self, varnames: Optional[List[Varname]]
+    ) -> EnvironmentVariables:
         selected_variables: EnvironmentVariables = {}
 
         for env_varname, value in self.env.items():
@@ -68,7 +70,7 @@ class GraphSession:
             if "_func" not in varname
         }
 
-    def get_session_functions(self) -> EnvironmentVariables:
+    def get_env_functions(self) -> EnvironmentVariables:
         return {
             varname: value for varname, value in self.env.items() if "_func" in varname
         }
@@ -88,7 +90,7 @@ class GraphSession:
 
         # Format all function names in the form "<name>_func"
         eq_resolved_function_names = resolve_function_names(
-            expression=eq_resolved_variables, variables=self.get_session_functions()
+            expression=eq_resolved_variables, variables=self.get_env_functions()
         )
 
         # print(f"\tstage 2: {eq_resolved_function_names}")
@@ -125,7 +127,7 @@ class GraphSession:
             filter(
                 lambda var: (var in input)  # noqa: W503
                 and (var not in force_ignore),  # noqa: W503
-                self.get_session_functions(),
+                self.get_env_functions(),
             )
         )
 
@@ -164,7 +166,7 @@ class GraphSession:
             resolved_input = try_simplify_expression(expr_str=resolved_input)
 
         expr: Expression = Expression.parse(input=resolved_input)
-        variables = self.get_variables(varnames=expr.expr_info.varnames)
+        variables = self.get_selected_env_variables(varnames=expr.expr_info.varnames)
 
         match (expr.expr_info.expr_type):
             case ExpressionType.ASSIGNMENT:
