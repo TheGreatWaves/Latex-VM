@@ -1,9 +1,10 @@
+from time import sleep
 from typing import List
 
 import pytest
 from _pytest.capture import CaptureFixture
 
-from src.expression import Expression, pack, unpack
+from src.expression import Expression, pack, try_running, unpack
 from src.graph_session import GraphSession
 from src.type_defs import EnvironmentVariables
 
@@ -241,10 +242,25 @@ def test_empty_execution(gs: GraphSession):
     assert len(gs.get_session_variables()) == 0
 
 
-# def test_error_raised_assignment(gs: GraphSession):
-#     # with pytest.raises(Exception):
-#     gs.execute("g(x, y) = x + y")
-#     # Missing arg
-#     gs.execute("v = g(1)")
+def test_break_expression():
+    _, rhs = Expression.break_expression(raw_expr="some_f(1) + 2")
+    assert rhs == ""
 
-#     assert len(gs.get_env_variables()) == 1
+
+def test_try_running():
+    def inf_loop():
+        while True:
+            pass
+
+    res = try_running(inf_loop, 1.0)
+    assert res is None
+
+    def delayed_return() -> int:
+        sleep(2)
+        return 2
+
+    res1 = try_running(delayed_return, 1.5)
+    assert res1 is None
+
+    res2 = try_running(delayed_return, 3)
+    assert res2 == 2

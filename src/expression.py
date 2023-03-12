@@ -288,9 +288,7 @@ def try_running(func: TimeoutFunction[T], timeout_value: float) -> Optional[T]:
     try:
         result: T = f()
         return result
-    except TimeoutError:
-        pass
-    finally:
+    except Exception:
         return None
 
 
