@@ -16,32 +16,6 @@ TimeoutFunction = Callable[[], T]
 ASSIGNMENT_TOKEN: str = "="
 
 
-def unpack(value: Varname) -> Optional[Varname]:
-    if value[0] != "(":
-        raise Exception("Value not packed")
-
-    idx = 1
-    resolution = 1
-    size = len(value)
-
-    while idx < size and resolution > 0:
-        if value[idx] == "(":
-            resolution += 1
-        elif value[idx] == ")":
-            resolution -= 1
-        idx += 1
-
-    if resolution != 0:
-        raise Exception("Value pack missing closing parenthesis")
-
-    unpacked_value = value[1:idx]
-    return unpacked_value
-
-
-def pack(value: Varname) -> Varname:
-    return "({})".format(value)
-
-
 class ExpressionType(Enum):
     ASSIGNMENT: int = 1
     FUNCTION: int = 2
@@ -65,6 +39,36 @@ class ExpressionInfo:
 @dataclass
 class Expression:
     expr_info: ExpressionInfo
+
+    @staticmethod
+    def parse(input: str) -> "Expression":
+        return Expression(expr_info=Expression.__parse_raw(input))
+
+    @staticmethod
+    def unpack(value: Varname) -> Optional[Varname]:
+        if value[0] != "(":
+            raise Exception("Value not packed")
+
+        idx = 1
+        resolution = 1
+        size = len(value)
+
+        while idx < size and resolution > 0:
+            if value[idx] == "(":
+                resolution += 1
+            elif value[idx] == ")":
+                resolution -= 1
+            idx += 1
+
+        if resolution != 0:
+            raise Exception("Value pack missing closing parenthesis")
+
+        unpacked_value = value[1:idx]
+        return unpacked_value
+
+    @staticmethod
+    def pack(value: Varname) -> Varname:
+        return "({})".format(value)
 
     @staticmethod
     def break_expression(raw_expr: str) -> Tuple[str, str]:
@@ -210,10 +214,6 @@ class Expression:
         return [f"{var}" for var in variables]
 
     @staticmethod
-    def parse(input: str) -> "Expression":
-        return Expression(expr_info=Expression.__parse_raw(input))
-
-    @staticmethod
     def capture_function(input: str, func_name: str) -> str:
         fn_idx = input.index(func_name)
 
@@ -223,222 +223,228 @@ class Expression:
 
         return "{}{}".format(fname, fparams)
 
+    @staticmethod
+    def replace_variables(
+        expression: str,
+        variables: Dict[Varname, Any],
+        force_ignore: List[Varname] = list(),
+    ) -> str:
+        sub_variables = {
+            k: v
+            for k, v in variables.items()
+            if k in expression and k not in force_ignore
+        }
+        for variable, value in sub_variables.items():
+            pat = r"(?<![a-zA-Z\\]){}(?![a-zA-Z])".format(variable)
+            expression = re.sub(pat, value, expression)
+        return expression
 
-def replace_variables(
-    expression: str, variables: Dict[Varname, Any], force_ignore: List[Varname] = list()
-) -> str:
-    sub_variables = {
-        k: v for k, v in variables.items() if k in expression and k not in force_ignore
-    }
-    for variable, value in sub_variables.items():
-        pat = r"(?<![a-zA-Z\\]){}(?![a-zA-Z])".format(variable)
-        expression = re.sub(pat, value, expression)
-    return expression
+    @staticmethod
+    def resolve_function_names(expression: str, variables: Dict[Varname, Any]) -> str:
+        if Expression.get_expression_type(expression) == ExpressionType.FUNCTION:
+            fname: str = Expression.get_function_name(raw_equation=expression)
+            expression: str = expression.replace(
+                "{}(".format(fname), "{}_func(".format(fname)
+            )
 
+        # Replace function names with their dictionary keys
+        for key in variables.keys():
+            fname: str = key[: key.rindex("_func")]
+            pattern: str = r"\b{}\(".format(fname)
+            expression: str = re.sub(pattern, f"{key}(", expression)
 
-def resolve_function_names(expression: str, variables: Dict[Varname, Any]) -> str:
-    if Expression.get_expression_type(expression) == ExpressionType.FUNCTION:
-        fname: str = Expression.get_function_name(raw_equation=expression)
-        expression: str = expression.replace(
-            "{}(".format(fname), "{}_func(".format(fname)
-        )
+        return expression
 
-    # Replace function names with their dictionary keys
-    for key in variables.keys():
-        fname: str = key[: key.rindex("_func")]
-        pattern: str = r"\b{}\(".format(fname)
-        expression: str = re.sub(pattern, f"{key}(", expression)
+    @staticmethod
+    def substitute_function(
+        fn: str,
+        variables: EnvironmentVariables,
+        func_params: EnvironmentVariables = {},
+        force_ignore: List[Varname] = [],
+    ) -> str:
+        resolved_fn: str = fn
+        filtered_variables = {}
 
-    return expression
+        for varname, varval in variables.items():  # pragma: no cover
+            if varname not in force_ignore:
+                filtered_variables[varname] = varval
 
-
-def substitute_function(
-    fn: str,
-    variables: EnvironmentVariables,
-    func_params: EnvironmentVariables = {},
-    force_ignore: List[Varname] = [],
-) -> str:
-    resolved_fn: str = fn
-    filtered_variables = {}
-
-    for varname, varval in variables.items():  # pragma: no cover
-        if varname not in force_ignore:
+        for varname, varval in func_params.items():
             filtered_variables[varname] = varval
 
-    for varname, varval in func_params.items():
-        filtered_variables[varname] = varval
+        for varname, value in filtered_variables.items():
+            pos = 0
+            pat = r"\b{}\b".format(re.escape(varname))
 
-    for varname, value in filtered_variables.items():
-        pos = 0
-        pat = r"\b{}\b".format(re.escape(varname))
+            while m := re.search(pat, resolved_fn[pos:]):
+                start, end = m.span()
+                replacement = Expression.pack(value)
+                resolved_fn = (
+                    resolved_fn[: pos + start] + replacement + resolved_fn[pos + end :]
+                )
+                pos += start + len(replacement)
 
-        while m := re.search(pat, resolved_fn[pos:]):
-            start, end = m.span()
-            replacement = pack(value)
-            resolved_fn = (
-                resolved_fn[: pos + start] + replacement + resolved_fn[pos + end :]
-            )
-            pos += start + len(replacement)
+        return resolved_fn
 
-    return resolved_fn
+    @staticmethod
+    def try_running(func: TimeoutFunction[T], timeout_value: float) -> Optional[T]:
+        @timeout(timeout_value)
+        def f() -> T:
+            return func()
 
+        try:
+            result: T = f()
+            return result
+        except Exception:
+            return None
 
-def try_running(func: TimeoutFunction[T], timeout_value: float) -> Optional[T]:
-    @timeout(timeout_value)
-    def f() -> T:
-        return func()
+    @staticmethod
+    def try_simplify_expression(expr_str: str) -> Optional[str]:
+        simplified_eq = Expression.try_running(
+            lambda: Expression.simplify_expression(expr_str), 3.0
+        )
 
-    try:
-        result: T = f()
-        return result
-    except Exception:
-        return None
+        if simplified_eq is not None:
+            return simplified_eq
+        else:
+            return expr_str
 
+    @staticmethod
+    def replace_params_with_temp(expr_str: str, params: List[str]) -> str:
+        """
+        Replaces function parameters in a given expression string with temporary strings.
+        Args:
+            expr_str (str): The expression string.
+            params (List[str]): A list of function parameter names.
 
-def try_simplify_expression(expr_str: str) -> Optional[str]:
-    simplified_eq = try_running(lambda: simplify_expression(expr_str), 3.0)
-
-    if simplified_eq is not None:
-        return simplified_eq
-    else:
+        Returns:
+            str: The modified expression string with parameters replaced with temporary strings.
+        """
+        for idx, param in enumerate(params):
+            pat = r"\b{}\b".format(param)
+            temp_sub_str = "p_p_{}".format(idx)
+            expr_str = re.sub(pat, temp_sub_str, expr_str)
         return expr_str
 
+    @staticmethod
+    def replace_temp_with_params(expr_str: str, params: List[str]) -> str:
+        """
+        Replaces temporary strings in a given expression string with function parameters.
+        Args:
+            expr_str (str): The expression string.
+            params (List[str]): A list of function parameter names.
 
-def replace_params_with_temp(expr_str: str, params: List[str]) -> str:
-    """
-    Replaces function parameters in a given expression string with temporary strings.
-    Args:
-        expr_str (str): The expression string.
-        params (List[str]): A list of function parameter names.
+        Returns:
+            str: The modified expression string with temporary strings replaced with function parameters.
+        """
+        for idx, param in enumerate(params):
+            expr_str = expr_str.replace(f"p_{{p_{{{idx}}}}}", param)
+        return expr_str
 
-    Returns:
-        str: The modified expression string with parameters replaced with temporary strings.
-    """
-    for idx, param in enumerate(params):
-        pat = r"\b{}\b".format(param)
-        temp_sub_str = "p_p_{}".format(idx)
-        expr_str = re.sub(pat, temp_sub_str, expr_str)
-    return expr_str
+    @staticmethod
+    def replace_latex_parens(expr_str: str) -> str:
+        """
+        Removes LaTeX-style parentheses from a mathematical expression string.
 
+        Args:
+            expr_str (str): The mathematical expression string to remove parentheses from.
 
-def replace_temp_with_params(expr_str: str, params: List[str]) -> str:
-    """
-    Replaces temporary strings in a given expression string with function parameters.
-    Args:
-        expr_str (str): The expression string.
-        params (List[str]): A list of function parameter names.
+        Returns:
+            str: The modified expression string with parentheses removed.
 
-    Returns:
-        str: The modified expression string with temporary strings replaced with function parameters.
-    """
-    for idx, param in enumerate(params):
-        expr_str = expr_str.replace(f"p_{{p_{{{idx}}}}}", param)
-    return expr_str
+        Note:
+            It leaves behind the '(' and ')' from left and right respectively.
+        """
+        # Remove \left and \right commands from expression string
+        expr_str = re.sub(r"\\(left|right)", "", expr_str)
+        return expr_str
 
+    @staticmethod
+    def simplify_latex_expression(expr_str: str) -> str:
+        """
+        Simplifies a LaTeX expression string and returns the simplified expression as a LaTeX string.
 
-def replace_latex_parens(expr_str: str) -> str:
-    """
-    Removes LaTeX-style parentheses from a mathematical expression string.
+        Args:
+            expr_str (str): The LaTeX expression to simplify.
 
-    Args:
-        expr_str (str): The mathematical expression string to remove parentheses from.
+        Returns:
+            str: The simplified LaTeX expression as a string.
+        """
+        expr = parse_latex(expr_str)
+        simplified_expr = simplify(expr)
+        simplified_latex_expr = str(latex(simplified_expr))
+        return simplified_latex_expr
 
-    Returns:
-        str: The modified expression string with parentheses removed.
+    @staticmethod
+    def simplify_assignment_expression(expr_str: str) -> Optional[str]:
+        """
+        Simplifies a given assignment expression string and returns the result as a string.
 
-    Note:
-        It leaves behind the '(' and ')' from left and right respectively.
-    """
-    # Remove \left and \right commands from expression string
-    expr_str = re.sub(r"\\(left|right)", "", expr_str)
-    return expr_str
+        Args:
+            expr_str (str): The assignment expression string to be simplified.
 
+        Returns:
+            Optional[str]: The simplified assignment expression string if successful, otherwise None.
+        """
+        lhs, rhs = Expression.break_expression(expr_str)
+        simplified_rhs = Expression.simplify_latex_expression(rhs)
+        return f"{lhs} = {simplified_rhs}"
 
-def simplify_latex_expression(expr_str: str) -> str:
-    """
-    Simplifies a LaTeX expression string and returns the simplified expression as a LaTeX string.
+    @staticmethod
+    def simplify_function_expression(expr_str: str) -> Optional[str]:
+        """
+        Simplifies a given function expression string and returns the result as a string.
 
-    Args:
-        expr_str (str): The LaTeX expression to simplify.
+        Args:
+            expr_str (str): The function expression string to be simplified.
 
-    Returns:
-        str: The simplified LaTeX expression as a string.
-    """
-    expr = parse_latex(expr_str)
-    simplified_expr = simplify(expr)
-    simplified_latex_expr = str(latex(simplified_expr))
-    return simplified_latex_expr
+        Returns:
+            Optional[str]: The simplified expression string if successful, otherwise None.
 
+        """
+        lhs, rhs = Expression.break_expression(expr_str)
+        params = Expression.get_parameters_from_function(lhs)
+        simplified_rhs = Expression.replace_params_with_temp(rhs, params)
+        simplified_rhs = Expression.simplify_latex_expression(simplified_rhs)
+        return_string = Expression.replace_temp_with_params(simplified_rhs, params)
+        return f"{lhs} = {return_string}"
 
-def simplify_assignment_expression(expr_str: str) -> Optional[str]:
-    """
-    Simplifies a given assignment expression string and returns the result as a string.
+    @staticmethod
+    def simplify_statement_expression(expr_str: str) -> str:
+        """
+        Simplifies a given statement expression string and returns the result as a string.
 
-    Args:
-        expr_str (str): The assignment expression string to be simplified.
+        Args:
+            expr_str (str): The statement expression string to be simplified.
 
-    Returns:
-        Optional[str]: The simplified assignment expression string if successful, otherwise None.
-    """
-    lhs, rhs = Expression.break_expression(expr_str)
-    simplified_rhs = simplify_latex_expression(rhs)
-    return f"{lhs} = {simplified_rhs}"
+        Returns:
+            str: The simplified expression string.
+        """
+        simplified_expr = Expression.simplify_latex_expression(expr_str)
+        return simplified_expr
 
+    @staticmethod
+    def simplify_expression(expr_str: str) -> Optional[str]:
+        """
+        Simplifies a given mathematical expression string and returns the result as a string.
 
-def simplify_function_expression(expr_str: str) -> Optional[str]:
-    """
-    Simplifies a given function expression string and returns the result as a string.
+        Args:
+            expr_str (str): The mathematical expression string to be simplified.
 
-    Args:
-        expr_str (str): The function expression string to be simplified.
+        Returns:
+            Optional[str]: The simplified expression string if successful, otherwise None.
 
-    Returns:
-        Optional[str]: The simplified expression string if successful, otherwise None.
+        Notes:
+            If the expression is an assignment, it will be simplified using `simplify_assignment_expression`.
+            If the expression is a function, it will be simplified using `simplify_function_expression`.
+            Otherwise, it will be simplified using `simplify_statement_expression`.
+        """
+        expr_type = Expression.get_expression_type(expr_str)
 
-    """
-    lhs, rhs = Expression.break_expression(expr_str)
-    params = Expression.get_parameters_from_function(lhs)
-    simplified_rhs = replace_params_with_temp(rhs, params)
-    simplified_rhs = simplify_latex_expression(simplified_rhs)
-    return_string = replace_temp_with_params(simplified_rhs, params)
-    return f"{lhs} = {return_string}"
-
-
-def simplify_statement_expression(expr_str: str) -> str:
-    """
-    Simplifies a given statement expression string and returns the result as a string.
-
-    Args:
-        expr_str (str): The statement expression string to be simplified.
-
-    Returns:
-        str: The simplified expression string.
-    """
-    simplified_expr = simplify_latex_expression(expr_str)
-    return simplified_expr
-
-
-def simplify_expression(expr_str: str) -> Optional[str]:
-    """
-    Simplifies a given mathematical expression string and returns the result as a string.
-
-    Args:
-        expr_str (str): The mathematical expression string to be simplified.
-
-    Returns:
-        Optional[str]: The simplified expression string if successful, otherwise None.
-
-    Notes:
-        If the expression is an assignment, it will be simplified using `simplify_assignment_expression`.
-        If the expression is a function, it will be simplified using `simplify_function_expression`.
-        Otherwise, it will be simplified using `simplify_statement_expression`.
-    """
-    expr_type = Expression.get_expression_type(expr_str)
-
-    match expr_type:
-        case ExpressionType.ASSIGNMENT:
-            return simplify_assignment_expression(expr_str)
-        case ExpressionType.FUNCTION:
-            return simplify_function_expression(expr_str)
-        case _:
-            return simplify_statement_expression(expr_str)
+        match expr_type:
+            case ExpressionType.ASSIGNMENT:
+                return Expression.simplify_assignment_expression(expr_str)
+            case ExpressionType.FUNCTION:
+                return Expression.simplify_function_expression(expr_str)
+            case _:
+                return Expression.simplify_statement_expression(expr_str)

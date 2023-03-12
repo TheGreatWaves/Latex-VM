@@ -2,15 +2,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-from src.expression import (
-    Expression,
-    ExpressionType,
-    replace_latex_parens,
-    replace_variables,
-    resolve_function_names,
-    substitute_function,
-    try_simplify_expression,
-)
+from src.expression import Expression, ExpressionType
 from src.type_defs import EnvironmentVariables, Varname
 
 
@@ -55,11 +47,11 @@ class GraphSession:
 
         if expr_type == ExpressionType.FUNCTION:
             parameters = Expression.get_parameters_from_function(input)
-            return lhs_asn + replace_variables(
+            return lhs_asn + Expression.replace_variables(
                 target_expr, self.get_env_variables(), parameters + forced_ignore
             )
 
-        return lhs_asn + replace_variables(
+        return lhs_asn + Expression.replace_variables(
             expression=target_expr, variables=self.env, force_ignore=forced_ignore
         )
 
@@ -76,7 +68,7 @@ class GraphSession:
         }
 
     def resolve(self, input: str, forced_ignore: List[Varname] = list()) -> str:
-        input = replace_latex_parens(expr_str=input)
+        input = Expression.replace_latex_parens(expr_str=input)
 
         # input = re.sub(r'\\cdot', " *", input)
         input = re.sub(r"\\ ", "", input)
@@ -89,7 +81,7 @@ class GraphSession:
         # print(f"\tstage 1: {eq_resolved_variables}")
 
         # Format all function names in the form "<name>_func"
-        eq_resolved_function_names = resolve_function_names(
+        eq_resolved_function_names = Expression.resolve_function_names(
             expression=eq_resolved_variables, variables=self.get_env_functions()
         )
 
@@ -148,7 +140,7 @@ class GraphSession:
                 }
 
                 # Complete the substitution and replace
-                func = f"({substitute_function(function_definition, self.env, mapped_args, force_ignore)})"
+                func = f"({Expression.substitute_function(function_definition, self.env, mapped_args, force_ignore)})"
 
                 input = input.replace(function_call_site, func)
 
@@ -163,7 +155,7 @@ class GraphSession:
         resolved_input = self.resolve(input=input)
 
         if simplify:
-            resolved_input = try_simplify_expression(expr_str=resolved_input)
+            resolved_input = Expression.try_simplify_expression(expr_str=resolved_input)
 
         expr: Expression = Expression.parse(input=resolved_input)
         variables = self.get_selected_env_variables(varnames=expr.expr_info.varnames)
