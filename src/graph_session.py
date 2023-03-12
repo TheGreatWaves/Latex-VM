@@ -5,6 +5,7 @@ from typing import List, Optional
 from src.expression import (
     Expression,
     ExpressionType,
+    replace_latex_parens,
     replace_variables,
     resolve_function_names,
     substitute_function,
@@ -73,8 +74,8 @@ class GraphSession:
         }
 
     def resolve(self, input: str, forced_ignore: List[Varname] = list()) -> str:
-        input = re.sub(r"\\left", "", input)
-        input = re.sub(r"\\right", "", input)
+        input = replace_latex_parens(expr_str=input)
+
         # input = re.sub(r'\\cdot', " *", input)
         input = re.sub(r"\\ ", "", input)
 

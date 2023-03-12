@@ -115,14 +115,19 @@ class Expression:
 
     @staticmethod
     def get_parameters_from_function(function_equation: str) -> List[Varname]:
-        parameters = Expression.get_parameters_str_from_function(function_equation)[
-            1:-1
-        ]
-        return ["{}".format(param.strip()) for param in parameters.split(",")]
+        params = Expression.get_parameters_str_from_function(function_equation)[1:-1]
+        return ["{}".format(param.strip()) for param in params.split(",")]
 
     @staticmethod
     def get_expression_type(raw_equation: str) -> ExpressionType:
-        is_assignment: bool = "=" in raw_equation
+        is_assignment = False
+        for c in raw_equation:
+            if c == "{":
+                break
+            elif c == "=":
+                is_assignment = True
+                break
+
         if is_assignment:
             if Expression.is_function_expression(raw_equation=raw_equation):
                 return ExpressionType.FUNCTION
@@ -299,40 +304,141 @@ def try_simplify_expression(expr_str: str) -> Optional[str]:
         return expr_str
 
 
-def simplify_expression(expr_str: str) -> Optional[str]:
-    expr_type = Expression.get_expression_type(expr_str)
-    is_asn = expr_type == ExpressionType.ASSIGNMENT
-    is_func = expr_type == ExpressionType.FUNCTION
-    lhs_asn = ""
-    ret_val = ""
-    params = list()
+def replace_params_with_temp(expr_str: str, params: List[str]) -> str:
+    """
+    Replaces function parameters in a given expression string with temporary strings.
+    Args:
+        expr_str (str): The expression string.
+        params (List[str]): A list of function parameter names.
 
-    if is_asn or is_func:
-        lhs, rhs = Expression.break_expression(expr_str)
-        expr_str = rhs
-        lhs_asn = "{} = ".format(lhs)
-
-        if is_func:
-            params = Expression.get_parameters_from_function(lhs)
-            params = [param for param in params]
-
-    # temporarily replace variables
+    Returns:
+        str: The modified expression string with parameters replaced with temporary strings.
+    """
     for idx, param in enumerate(params):
         pat = r"\b{}\b".format(param)
         temp_sub_str = "p_p_{}".format(idx)
         expr_str = re.sub(pat, temp_sub_str, expr_str)
+    return expr_str
 
+
+def replace_temp_with_params(expr_str: str, params: List[str]) -> str:
+    """
+    Replaces temporary strings in a given expression string with function parameters.
+    Args:
+        expr_str (str): The expression string.
+        params (List[str]): A list of function parameter names.
+
+    Returns:
+        str: The modified expression string with temporary strings replaced with function parameters.
+    """
+    for idx, param in enumerate(params):
+        expr_str = expr_str.replace(f"p_{{p_{{{idx}}}}}", param)
+    return expr_str
+
+
+def replace_latex_parens(expr_str: str) -> str:
+    """
+    Removes LaTeX-style parentheses from a mathematical expression string.
+
+    Args:
+        expr_str (str): The mathematical expression string to remove parentheses from.
+
+    Returns:
+        str: The modified expression string with parentheses removed.
+
+    Note:
+        It leaves behind the '(' and ')' from left and right respectively.
+    """
+    # Remove \left and \right commands from expression string
+    expr_str = re.sub(r"\\(left|right)", "", expr_str)
+    return expr_str
+
+
+def simplify_latex_expression(expr_str: str) -> str:
+    """
+    Simplifies a LaTeX expression string and returns the simplified expression as a LaTeX string.
+
+    Args:
+        expr_str (str): The LaTeX expression to simplify.
+
+    Returns:
+        str: The simplified LaTeX expression as a string.
+    """
     expr = parse_latex(expr_str)
     simplified_expr = simplify(expr)
     simplified_latex_expr = str(latex(simplified_expr))
+    return simplified_latex_expr
 
-    ret_val = lhs_asn + simplified_latex_expr
 
-    # place variables back
-    for idx, param in enumerate(params):
-        ret_val = ret_val.replace(f"p_{{p_{{{idx}}}}}", param)
+def simplify_assignment_expression(expr_str: str) -> Optional[str]:
+    """
+    Simplifies a given assignment expression string and returns the result as a string.
 
-    # These parens don't play nice, we need to remove them
-    ret_val = re.sub(r"\\left", "", ret_val)
-    ret_val = re.sub(r"\\right", "", ret_val)
-    return ret_val
+    Args:
+        expr_str (str): The assignment expression string to be simplified.
+
+    Returns:
+        Optional[str]: The simplified assignment expression string if successful, otherwise None.
+    """
+    lhs, rhs = Expression.break_expression(expr_str)
+    simplified_rhs = simplify_latex_expression(rhs)
+    return f"{lhs} = {simplified_rhs}"
+
+
+def simplify_function_expression(expr_str: str) -> Optional[str]:
+    """
+    Simplifies a given function expression string and returns the result as a string.
+
+    Args:
+        expr_str (str): The function expression string to be simplified.
+
+    Returns:
+        Optional[str]: The simplified expression string if successful, otherwise None.
+
+    """
+    lhs, rhs = Expression.break_expression(expr_str)
+    params = Expression.get_parameters_from_function(lhs)
+    simplified_rhs = replace_params_with_temp(rhs, params)
+    simplified_rhs = simplify_latex_expression(simplified_rhs)
+    return_string = replace_temp_with_params(simplified_rhs, params)
+    return f"{lhs} = {return_string}"
+
+
+def simplify_statement_expression(expr_str: str) -> str:
+    """
+    Simplifies a given statement expression string and returns the result as a string.
+
+    Args:
+        expr_str (str): The statement expression string to be simplified.
+
+    Returns:
+        str: The simplified expression string.
+    """
+    simplified_expr = simplify_latex_expression(expr_str)
+    return simplified_expr
+
+
+def simplify_expression(expr_str: str) -> Optional[str]:
+    """
+    Simplifies a given mathematical expression string and returns the result as a string.
+
+    Args:
+        expr_str (str): The mathematical expression string to be simplified.
+
+    Returns:
+        Optional[str]: The simplified expression string if successful, otherwise None.
+
+    Notes:
+        If the expression is an assignment, it will be simplified using `simplify_assignment_expression`.
+        If the expression is a function, it will be simplified using `simplify_function_expression`.
+        Otherwise, it will be simplified using `simplify_statement_expression`.
+    """
+    expr_type = Expression.get_expression_type(expr_str)
+
+    match expr_type:
+        case ExpressionType.ASSIGNMENT:
+            return simplify_assignment_expression(expr_str)
+        case ExpressionType.FUNCTION:
+            return simplify_function_expression(expr_str)
+        case _:
+            return simplify_statement_expression(expr_str)
