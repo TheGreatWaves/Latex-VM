@@ -2,8 +2,13 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-from src.expression import Expression, ExpressionType
-from src.type_defs import EnvironmentVariables, Varname
+from src.expression import Expression, ExpressionBuffer, ExpressionType
+from src.type_defs import (
+    ActionResult,
+    CalculatorAction,
+    EnvironmentVariables,
+    Varname,
+)
 
 
 @dataclass
@@ -20,40 +25,40 @@ class GraphSession:
     def get_selected_env_variables(
         self, varnames: Optional[List[Varname]]
     ) -> EnvironmentVariables:
-        selected_variables: EnvironmentVariables = {}
-
-        for env_varname, value in self.env.items():
-            if env_varname in varnames:
-                selected_variables[env_varname] = value
-
+        selected_variables = {
+            env_varname: value
+            for env_varname, value in self.env.items()
+            if env_varname in varnames
+        }
         return selected_variables
 
     def resolve_variables(
-        self, input: str, forced_ignore: List[Varname] = list()
-    ) -> str:
-        expr_type: ExpressionType = Expression.get_expression_type(input)
-        target_expr: str = input
-        lhs_asn: str = ""
+        self, expr: ExpressionBuffer, forced_ignore: List[Varname] = list()
+    ) -> None:
+        match (expr.expr_type):
+            case ExpressionType.FUNCTION:
+                expr.body = Expression.replace_variables(
+                    expression=expr.body,
+                    variables=self.get_env_variables(),
+                    force_ignore=expr.signature + forced_ignore,
+                )
+            case _:
+                expr.body = Expression.replace_variables(
+                    expression=expr.body,
+                    variables=self.get_env_variables(),
+                    force_ignore=forced_ignore,
+                )
 
-        if (
-            expr_type == ExpressionType.ASSIGNMENT
-            or expr_type == ExpressionType.FUNCTION  # noqa: W503
-        ):
-            lhs, rhs = Expression.break_expression(raw_expr=input)
-            target_expr = rhs
-            lhs_asn = lhs + "="
+    def resolve_function_names(self, expr: ExpressionBuffer) -> None:
 
-        # print(f'force ignore: {forced_ignore}')
+        if expr.expr_type == ExpressionType.FUNCTION:
+            expr.name = expr.name + "_func"
 
-        if expr_type == ExpressionType.FUNCTION:
-            parameters = Expression.get_parameters_from_function(input)
-            return lhs_asn + Expression.replace_variables(
-                target_expr, self.get_env_variables(), parameters + forced_ignore
-            )
-
-        return lhs_asn + Expression.replace_variables(
-            expression=target_expr, variables=self.env, force_ignore=forced_ignore
-        )
+        # Replace function names with their dictionary keys
+        for key in self.get_env_functions():
+            fname: str = key[: key.rindex("_func")]
+            pattern: str = r"\b{}\(".format(fname)
+            expr.body = re.sub(pattern, f"{key}(", expr.body)
 
     def get_env_variables(self) -> EnvironmentVariables:
         return {
@@ -67,67 +72,40 @@ class GraphSession:
             varname: value for varname, value in self.env.items() if "_func" in varname
         }
 
-    def resolve(self, input: str, forced_ignore: List[Varname] = list()) -> str:
+    def resolve(
+        self, input: str, forced_ignore: List[Varname] = list()
+    ) -> ExpressionBuffer:
+        # Clean the input
         input = Expression.replace_latex_parens(expr_str=input)
-
-        # input = re.sub(r'\\cdot', " *", input)
         input = re.sub(r"\\ ", "", input)
 
-        # Resolve all variables
-        eq_resolved_variables = self.resolve_variables(
-            input=input, forced_ignore=forced_ignore
-        )
+        processing = ExpressionBuffer.new(input)
 
-        # print(f"\tstage 1: {eq_resolved_variables}")
+        # Resolve all variables
+        self.resolve_variables(expr=processing, forced_ignore=forced_ignore)
 
         # Format all function names in the form "<name>_func"
-        eq_resolved_function_names = Expression.resolve_function_names(
-            expression=eq_resolved_variables, variables=self.get_env_functions()
-        )
+        self.resolve_function_names(expr=processing)
 
-        # print(f"\tstage 2: {eq_resolved_function_names}")
+        # Substitute all functions
+        self.resolve_function_calls(expr=processing, force_ignore=forced_ignore)
 
-        # Substitute all functions and simplify
-        eq_resolved = self.resolve_function_calls(
-            eq_resolved_function_names, forced_ignore
-        )
-
-        # print(f"\tstage 3: {eq_resolved}")
-
-        return eq_resolved
+        return processing
 
     def resolve_function_calls(
-        self, input: str, force_ignore: List[Varname] = list()
+        self, expr: ExpressionBuffer, force_ignore: List[Varname] = list()
     ) -> str:
-        lhs_asn = ""
-        expression_type: ExpressionType = Expression.get_expression_type(input)
 
-        if (
-            expression_type == ExpressionType.ASSIGNMENT
-            or expression_type == ExpressionType.FUNCTION  # noqa: W503
-        ):
-            lhs, rhs = Expression.break_expression(raw_expr=input)
-            lhs_asn = "{} = ".format(lhs)
-            input = rhs
+        if expr.expr_type == ExpressionType.FUNCTION:
+            force_ignore = expr.signature
 
-            if expression_type == ExpressionType.FUNCTION:
-                force_ignore = [
-                    (param) for param in Expression.get_parameters_from_function(lhs)
-                ]
-
-        func_names = set(
-            filter(
-                lambda var: (var in input)  # noqa: W503
-                and (var not in force_ignore),  # noqa: W503
-                self.get_env_functions(),
-            )
-        )
+        func_names = {f for f in self.get_env_functions() if f in expr.body}
 
         for func_name in func_names:
-            while match := re.search(r"\b{}".format(func_name), input):
+            while match := re.search(r"\b{}".format(func_name), expr.body):
                 # Obtain the function call site
                 function_call_site = Expression.capture_function(
-                    input=input[match.start() :], func_name=func_name  # noqa: E203
+                    input=expr.body[match.start() :], func_name=func_name  # noqa: E203
                 )
 
                 # Get the arguments passed into the function
@@ -142,61 +120,62 @@ class GraphSession:
                 # Complete the substitution and replace
                 func = f"({Expression.substitute_function(function_definition, self.env, mapped_args, force_ignore)})"
 
-                input = input.replace(function_call_site, func)
+                expr.body = expr.body.replace(function_call_site, func)
 
-        assembled = "{}{}".format(lhs_asn, input)
+        return expr.assemble()
 
-        return assembled
-
-    def execute(self, input: str, simplify: bool = False) -> None:
+    def execute(
+        self, input: str, simplify: bool = False
+    ) -> ActionResult[CalculatorAction, str]:
         if len(input) <= 0:
-            return
+            return ActionResult.fail(
+                CalculatorAction.UNKNOWN, "Invalid input length. got=0"
+            )
 
-        resolved_input = self.resolve(input=input)
+        expr = None
+
+        try:
+            expr = self.resolve(input=input)
+        except Exception as e:
+            return ActionResult.fail(CalculatorAction.EXPRESSION_REDUCTION, e)
 
         if simplify:
-            resolved_input = Expression.try_simplify_expression(expr_str=resolved_input)
+            Expression.try_simplify_expression(expr=expr)
 
-        expr: Expression = Expression.parse(input=resolved_input)
-        variables = self.get_selected_env_variables(varnames=expr.expr_info.varnames)
-
-        match (expr.expr_info.expr_type):
+        match (expr.expr_type):
             case ExpressionType.ASSIGNMENT:
                 try:
-                    result_expression = expr.expr_info.fn(**variables)
+                    fn, varnames = expr.create_callable()
+                    variables = self.get_selected_env_variables(varnames=varnames)
+                    result_expression = str(fn(**variables))
+                    self.env[expr.name] = result_expression
+                    return ActionResult.success(
+                        CalculatorAction.VARIABLE_ASSIGNMENT, result_expression
+                    )
                 except Exception as e:
-                    print(f"Caught Error: {e}")
-                    return
-                expr_varname = expr.expr_info.lhs_varname
-                self.env[expr_varname] = str(result_expression)
-                print(f"{expr_varname} = {result_expression}")
+                    return ActionResult.fail(CalculatorAction.VARIABLE_ASSIGNMENT, e)
 
             case ExpressionType.FUNCTION:
-                expr_varname = Expression.get_function_name(resolved_input)
-
-                function_definition = Expression.get_rhs(resolved_input)
-
-                function_signature: str = Expression.get_parameters_from_function(
-                    resolved_input
+                self.env[expr.name] = (expr.signature, expr.body)
+                return ActionResult.success(
+                    CalculatorAction.FUNCTION_DEFINITION, expr.assemble()
                 )
 
-                self.env[expr_varname] = (function_signature, function_definition)
-
-                lhs, rhs = Expression.break_expression(resolved_input)
-
-                print(f"{lhs.replace('_func', '')} = {rhs}")
-
-            case ExpressionType.STATEMENT:
+            case ExpressionType.STATEMENT | _:
                 try:
+                    result_expression: str = ""
                     if input.isdecimal() or input.isnumeric():
-                        result_expression = float(input)
+                        result_expression = str(float(input))
                     else:
-                        result_expression = expr.expr_info.fn(**variables)
+                        fn, varnames = expr.create_callable()
+                        variables = self.get_selected_env_variables(varnames=varnames)
+                        result_expression = str(fn(**variables))
 
+                    return ActionResult.success(
+                        CalculatorAction.STATEMENT_EXECUTION, result_expression
+                    )
                 except Exception as e:
-                    print(f"Caught Error (STMT): {e}")
-                    return
-                print(result_expression)
+                    return ActionResult.fail(CalculatorAction.STATEMENT_EXECUTION, e)
 
     def clear_session(self) -> None:
         self.env.clear()

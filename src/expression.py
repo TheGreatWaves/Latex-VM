@@ -29,21 +29,67 @@ expression or an assignment expression.
 
 
 @dataclass
-class ExpressionInfo:
-    lhs_varname: Optional[Varname]
-    varnames: Optional[List[Varname]]
-    fn: Optional[callable]
+class ExpressionBuffer:
     expr_type: ExpressionType
+
+    @staticmethod
+    def new(expr: str) -> Optional["ExpressionBuffer"]:
+        type: ExpressionType = Expression.get_expression_type(expr)
+
+        match (type):
+            case ExpressionType.FUNCTION:
+                lhs, definition = Expression.break_expression(expr)
+
+                fname = Expression.get_function_name(lhs)
+
+                if lhs[-1] != ")":
+                    raise Exception(f"Invalid function lhs: '{lhs}'")
+
+                if len(re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", fname)) != 1:
+                    raise Exception(f"Invalid function lhs: '{lhs}'")
+
+                signature_str: str = Expression.get_parameters_str_from_function(lhs)
+                signature: List[str] = Expression.get_parameters_from_function(
+                    signature_str
+                )
+                return FunctionExpressionBuffer(
+                    expr_type=type,
+                    name=fname,
+                    signature=signature,
+                    signature_str=signature_str,
+                    body=definition,
+                )
+            case ExpressionType.ASSIGNMENT:
+                name, body = Expression.break_expression(expr)
+
+                if s := re.search(r"(?<!\{)\b\d+\b(?!\}|\{)", name):
+                    raise Exception(f"Invalid identifier: '{s.group()}'")
+
+                if len(re.findall(r"\b[a-zA-Z_0-9{}]+\b", name)) > 1:
+                    raise Exception(f"Invalid assignment lhs: '{name}'")
+
+                return AssignmentExpressionBuffer(expr_type=type, name=name, body=body)
+            case _:
+                return StatementExpressionBuffer(expr_type=type, body=expr)
+
+    def assemble(self) -> str:
+        match (self.expr_type):
+            case ExpressionType.FUNCTION:
+                return f"{self.name}{self.signature_str} = {self.body}"
+            case ExpressionType.ASSIGNMENT:
+                return f"{self.name} = {self.body}"
+            case _:
+                return self.body
+
+    def create_callable(self) -> Tuple[Callable, List[Varname]]:
+        expr: Expr = Expression.get_expression(expr_str=self.body)
+        variables = Expression.extract_variables(expr=expr)
+        var_symbols = symbols(names=variables)
+        return lambdify(args=var_symbols, expr=expr), var_symbols
 
 
 @dataclass
 class Expression:
-    expr_info: ExpressionInfo
-
-    @staticmethod
-    def parse(input: str) -> "Expression":
-        return Expression(expr_info=Expression.__parse_raw(input))
-
     @staticmethod
     def unpack(value: Varname) -> Optional[Varname]:
         if value[0] != "(":
@@ -82,8 +128,13 @@ class Expression:
 
     @staticmethod
     def is_function(expr_str: str) -> bool:
-        regex = r"[a-zA-Z]+\("
-        return re.search(regex, expr_str) is not None
+        regex = r"\b.*\("
+        capture = re.search(regex, expr_str)
+
+        if capture is None:
+            return False
+
+        return expr_str.index(capture.group()) == 0
 
     @staticmethod
     def get_function_name(raw_equation: str) -> str:
@@ -125,12 +176,17 @@ class Expression:
     @staticmethod
     def get_expression_type(raw_equation: str) -> ExpressionType:
         is_assignment = False
+        resolution = 0
+
         for c in raw_equation:
             if c == "{":
-                break
-            elif c == "=":
+                resolution += 1
+            elif c == "}":
+                resolution -= 1
+            elif c == "=" and resolution == 0:
+                if is_assignment:
+                    raise Exception("Chaining assignment is not allowed")
                 is_assignment = True
-                break
 
         if is_assignment:
             if Expression.is_function_expression(raw_equation=raw_equation):
@@ -139,79 +195,14 @@ class Expression:
         return ExpressionType.STATEMENT
 
     @staticmethod
-    def get_expression(raw_equation: str) -> Tuple[ExpressionType, Expr]:
-        expr: Expr = parse_latex(raw_equation)
-        return Expression.get_expression_type(raw_equation=raw_equation), expr
+    def get_expression(expr_str: str) -> Expr:
+        expr: Expr = parse_latex(expr_str)
+        return expr
 
     @staticmethod
-    def get_lhs(raw_equation: str) -> str:
-        return raw_equation.split("=")[0].strip()
-
-    @staticmethod
-    def get_rhs(raw_equation: str) -> str:  # pragma: no cover
-        return raw_equation.split("=")[1].strip()
-
-    @staticmethod
-    def __create_callable(
-        expr_type: ExpressionType, expr: Expr, variables: List[str]
-    ) -> callable:
-        # Define symbols for variable names
-        var_symbols = symbols(names=variables)
-
-        # Define a function from the expression
-        match (expr_type):
-            case ExpressionType.ASSIGNMENT:
-                return lambdify(args=var_symbols, expr=expr.rhs)
-            case ExpressionType.FUNCTION:
-                return lambdify(args=var_symbols, expr=expr.rhs)
-            case _:
-                return lambdify(args=var_symbols, expr=expr)
-
-    @staticmethod
-    def __parse_raw(raw_equation: str) -> Optional[ExpressionInfo]:
-        try:
-            expr_type, expr = Expression.get_expression(raw_equation=raw_equation)
-            variables: List[str] = Expression.__get_variables(
-                expr_type=expr_type, expr=expr
-            )
-
-            fn: callable = Expression.__create_callable(
-                expr_type=expr_type, expr=expr, variables=variables
-            )
-
-            lhs_varname: str = None
-
-            match (expr_type):
-                case ExpressionType.FUNCTION:
-                    lhs_varname = expr.lhs
-                case ExpressionType.ASSIGNMENT:
-                    lhs_varname = Expression.get_lhs(raw_equation=raw_equation)
-
-            return ExpressionInfo(
-                lhs_varname=lhs_varname,
-                varnames=variables,
-                fn=fn,
-                expr_type=expr_type,
-            )
-
-        except Exception as e:
-            print(f"GOT ERROR {e}")
-            raise e
-
-    @staticmethod
-    def __get_variables(expr_type: ExpressionType, expr: Expr) -> List[str]:
-        match (expr_type):
-            case ExpressionType.ASSIGNMENT:
-                return Expression.__extract_variables(expr=expr.rhs)
-            case ExpressionType.FUNCTION:
-                return Expression.__extract_variables(expr=expr.rhs)
-            case _:
-                return Expression.__extract_variables(expr=expr)
-
-    @staticmethod
-    def __extract_variables(expr: Expr) -> List[str]:
+    def extract_variables(expr: Expr) -> List[str]:
         variables = list(expr.free_symbols)
-        return [f"{var}" for var in variables]
+        return [str(var) for var in variables]
 
     @staticmethod
     def capture_function(input: str, func_name: str) -> str:
@@ -237,22 +228,6 @@ class Expression:
         for variable, value in sub_variables.items():
             pat = r"(?<![a-zA-Z\\]){}(?![a-zA-Z])".format(variable)
             expression = re.sub(pat, value, expression)
-        return expression
-
-    @staticmethod
-    def resolve_function_names(expression: str, variables: Dict[Varname, Any]) -> str:
-        if Expression.get_expression_type(expression) == ExpressionType.FUNCTION:
-            fname: str = Expression.get_function_name(raw_equation=expression)
-            expression: str = expression.replace(
-                "{}(".format(fname), "{}_func(".format(fname)
-            )
-
-        # Replace function names with their dictionary keys
-        for key in variables.keys():
-            fname: str = key[: key.rindex("_func")]
-            pattern: str = r"\b{}\(".format(fname)
-            expression: str = re.sub(pattern, f"{key}(", expression)
-
         return expression
 
     @staticmethod
@@ -287,27 +262,28 @@ class Expression:
         return resolved_fn
 
     @staticmethod
-    def try_running(func: TimeoutFunction[T], timeout_value: float) -> Optional[T]:
+    def try_running(func: TimeoutFunction[T], timeout_value: float) -> (T | None):
         @timeout(timeout_value)
         def f() -> T:
             return func()
 
         try:
             result: T = f()
-            return result
+            return result if result else True
         except Exception:
             return None
 
     @staticmethod
-    def try_simplify_expression(expr_str: str) -> Optional[str]:
+    def try_simplify_expression(expr: ExpressionBuffer) -> None:
+
+        snapshot = expr.body
+
         simplified_eq = Expression.try_running(
-            lambda: Expression.simplify_expression(expr_str), 3.0
+            lambda: Expression.simplify_expression(expr), 3.0
         )
 
-        if simplified_eq is not None:
-            return simplified_eq
-        else:
-            return expr_str
+        if simplified_eq is None:
+            expr.body = snapshot
 
     @staticmethod
     def replace_params_with_temp(expr_str: str, params: List[str]) -> str:
@@ -376,75 +352,40 @@ class Expression:
         return simplified_latex_expr
 
     @staticmethod
-    def simplify_assignment_expression(expr_str: str) -> Optional[str]:
-        """
-        Simplifies a given assignment expression string and returns the result as a string.
-
-        Args:
-            expr_str (str): The assignment expression string to be simplified.
-
-        Returns:
-            Optional[str]: The simplified assignment expression string if successful, otherwise None.
-        """
-        lhs, rhs = Expression.break_expression(expr_str)
-        simplified_rhs = Expression.simplify_latex_expression(rhs)
-        return f"{lhs} = {simplified_rhs}"
+    def simplify_body(expr: ExpressionBuffer) -> None:
+        expr.body = Expression.simplify_latex_expression(expr.body)
 
     @staticmethod
-    def simplify_function_expression(expr_str: str) -> Optional[str]:
-        """
-        Simplifies a given function expression string and returns the result as a string.
-
-        Args:
-            expr_str (str): The function expression string to be simplified.
-
-        Returns:
-            Optional[str]: The simplified expression string if successful, otherwise None.
-
-        """
-        lhs, rhs = Expression.break_expression(expr_str)
-        params = Expression.get_parameters_from_function(lhs)
-        simplified_rhs = Expression.replace_params_with_temp(rhs, params)
-        simplified_rhs = Expression.simplify_latex_expression(simplified_rhs)
-        return_string = Expression.replace_temp_with_params(simplified_rhs, params)
-        return f"{lhs} = {return_string}"
+    def simplify_function_expression(expr: ExpressionBuffer) -> None:
+        expr.body = Expression.replace_params_with_temp(expr.body, expr.signature)
+        _ = Expression.simplify_body(expr=expr)
+        expr.body = Expression.replace_temp_with_params(expr.body, expr.signature)
+        print(f"body: {expr.body}")
 
     @staticmethod
-    def simplify_statement_expression(expr_str: str) -> str:
-        """
-        Simplifies a given statement expression string and returns the result as a string.
+    def simplify_expression(expr: ExpressionBuffer) -> None:
 
-        Args:
-            expr_str (str): The statement expression string to be simplified.
-
-        Returns:
-            str: The simplified expression string.
-        """
-        simplified_expr = Expression.simplify_latex_expression(expr_str)
-        return simplified_expr
-
-    @staticmethod
-    def simplify_expression(expr_str: str) -> Optional[str]:
-        """
-        Simplifies a given mathematical expression string and returns the result as a string.
-
-        Args:
-            expr_str (str): The mathematical expression string to be simplified.
-
-        Returns:
-            Optional[str]: The simplified expression string if successful, otherwise None.
-
-        Notes:
-            If the expression is an assignment, it will be simplified using `simplify_assignment_expression`.
-            If the expression is a function, it will be simplified using `simplify_function_expression`.
-            Otherwise, it will be simplified using `simplify_statement_expression`.
-        """
-        expr_type = Expression.get_expression_type(expr_str)
-
-        match expr_type:
-            case ExpressionType.ASSIGNMENT:
-                return Expression.simplify_assignment_expression(expr_str)
+        match expr.expr_type:
             case ExpressionType.FUNCTION:
-                return Expression.simplify_function_expression(expr_str)
+                Expression.simplify_function_expression(expr)
             case _:
-                return Expression.simplify_statement_expression(expr_str)
+                Expression.simplify_body(expr)
+
+
+@dataclass
+class FunctionExpressionBuffer(ExpressionBuffer):
+    name: str
+    signature_str: str
+    signature: List[str]
+    body: str
+
+
+@dataclass
+class StatementExpressionBuffer(ExpressionBuffer):
+    body: str
+
+
+@dataclass
+class AssignmentExpressionBuffer(ExpressionBuffer):
+    name: str
+    body: str

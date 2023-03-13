@@ -2,9 +2,8 @@ from time import sleep
 from typing import List
 
 import pytest
-from _pytest.capture import CaptureFixture
 
-from src.expression import Expression
+from src.expression import Expression, ExpressionBuffer, ExpressionType
 from src.graph_session import GraphSession
 from src.type_defs import EnvironmentVariables
 
@@ -160,11 +159,27 @@ def test_nested_function(gs: GraphSession, commands: List[str], exp: str):
     assert gs.get_env_variables()["ans"] == exp
 
 
-def test_stmt(gs: GraphSession, capfd: CaptureFixture[str]):
+def test_statement(gs: GraphSession):
     gs.execute(r"f(x) = x^{2}")
-    gs.execute(r"f(f(2))")
-    out, _ = capfd.readouterr()
-    assert out.endswith("16\n")
+    res = gs.execute(r"f(f(2))")
+
+    assert res.ok() and "16" in res.message
+
+    res1 = gs.execute(r"2")
+    res2 = gs.execute(r"2.3")
+    assert res1.ok() and "2.0" == res1.message
+    assert res2.ok() and "2.3" == res2.message
+
+
+def test_assignment_fail(gs: GraphSession):
+    res = gs.execute(r"x = y")
+
+    assert "_lambdifygenerated()" in str(res.message)
+
+
+def test_statement_fail(gs: GraphSession):
+    res = gs.execute(r"y")
+    assert "_lambdifygenerated()" in str(res.message)
 
 
 def test_long_param_names(gs: GraphSession):
@@ -267,33 +282,37 @@ def test_try_running():
 
 
 def test_simplifying_statement_expression():
-    short_equation: str = "2 + 2 + 2 + 2"
-    simplified_short_equation: str = Expression.try_simplify_expression(short_equation)
-    assert simplified_short_equation == "8"
+    short_equation: ExpressionBuffer = ExpressionBuffer.new("2 + 2 + 2 + 2")
+    _ = Expression.try_simplify_expression(short_equation)
+    assert short_equation.assemble() == "8"
 
-    long_equation: str = r"g\left(x,\ y\right)\ =\frac{w\left(\sqrt{y\ ^{\frac{\sqrt{\frac{f\left(w\left(x\right)\right)\cdot2\ +\ y}{\sqrt{w\left(f\left(x\right)+w\left(2\right)\right)}\cdot3}}}{w\left(24\right)}}}\right)}{2\ \cdot\ \ln\ 2}"
-    simplified_long_equation: str = Expression.try_simplify_expression(long_equation)
-    assert simplified_long_equation == long_equation
+    long_equation_str = r"g\left(x,\ y\right) = \frac{w\left(\sqrt{y\ ^{\frac{\sqrt{\frac{f\left(w\left(x\right)\right)\cdot2\ +\ y}{\sqrt{w\left(f\left(x\right)+w\left(2\right)\right)}\cdot3}}}{w\left(24\right)}}}\right)}{2\ \cdot\ \ln\ 2}"
+    long_equation_str = Expression.replace_latex_parens(long_equation_str)
+    long_equation: ExpressionBuffer = ExpressionBuffer.new(long_equation_str)
+    _ = Expression.try_simplify_expression(long_equation)
+    print(long_equation.assemble())
+    print(long_equation_str)
+    assert long_equation.assemble() == long_equation_str
 
 
 def test_simplifying_function_expression():
-    short_function_equation: str = "f(x) = 2 + 2 + 2 + 2 + x"
-    simplified_function_short_equation: str = Expression.try_simplify_expression(
-        short_function_equation
+    short_function_equation: ExpressionBuffer = ExpressionBuffer.new(
+        "f(x) = 2 + 2 + 2 + 2 + x"
     )
-    assert simplified_function_short_equation == "f(x) = x + 8"
+    _ = Expression.try_simplify_expression(short_function_equation)
+    assert short_function_equation.assemble() == "f(x) = x + 8"
 
-    short_function_equation: str = "f(x, y) = x + x + x + y"
-    simplified_function_short_equation: str = Expression.try_simplify_expression(
-        short_function_equation
+    short_function_equation: ExpressionBuffer = ExpressionBuffer.new(
+        "f(x, y) = x + x + x + y"
     )
-    assert simplified_function_short_equation == "f(x, y) = 3 x + y"
+    _ = Expression.try_simplify_expression(short_function_equation)
+    assert short_function_equation.assemble() == "f(x, y) = 3 x + y"
 
 
 def test_simplifying_assignment_expression():
-    short_equation: str = "v = 2 + 2 + 2 + 2"
-    simplified_short_equation: str = Expression.try_simplify_expression(short_equation)
-    assert simplified_short_equation == "v = 8"
+    short_equation: ExpressionBuffer = ExpressionBuffer.new("v = 2 + 2 + 2 + 2")
+    _ = Expression.try_simplify_expression(short_equation)
+    assert short_equation.assemble() == "v = 8"
 
 
 def test_enabling_simplify(gs: GraphSession):
@@ -314,3 +333,44 @@ def test_clear_env(gs: GraphSession):
     gs.clear_session()
 
     assert len(gs.get_env()) == 0
+
+
+def test_get_expr_type():
+    assert (
+        Expression.get_expression_type(r"\sum_{i=1}^{3}i") == ExpressionType.STATEMENT
+    )
+    assert (
+        Expression.get_expression_type(r"v = \sum_{i=1}^{3}i")
+        == ExpressionType.ASSIGNMENT
+    )
+    assert (
+        Expression.get_expression_type(r"f(x) = \sum_{i=1}^{3}{i*x}")
+        == ExpressionType.FUNCTION
+    )
+
+
+def test_assignment_error(gs: GraphSession):
+    res = gs.execute(r"wowowowow = 5 = 2")
+    assert str(res.message) == "Chaining assignment is not allowed"
+
+    res = gs.execute(r"wowowowow = (2")
+    assert "missing ')'" in str(res.message)
+
+
+def test_invalid_function_lhs(gs: GraphSession):
+    res = gs.execute("what(x = 4")
+    assert "Invalid function lhs" in str(res.message)
+
+    res = gs.execute("2(x) = x*2")
+    assert "Invalid function lhs" in str(res.message)
+
+
+def test_invalid_assignment_lhs(gs: GraphSession):
+    res = gs.execute("2 = 4")
+    assert not res.ok() and "Invalid identifier" in str(res.message)
+
+    res = gs.execute("x + x = x*2")
+    assert not res.ok() and "Invalid assignment lhs" in str(res.message)
+
+    res = gs.execute("x x = x*2")
+    assert not res.ok() and "Invalid assignment lhs" in str(res.message)
