@@ -7,7 +7,7 @@ from sympy import Expr, lambdify, latex, simplify, symbols
 from sympy.parsing.latex import parse_latex
 from timeout_decorator import timeout
 
-from src.type_defs import EnvironmentVariables, Varname
+from latexvm.type_defs import EnvironmentVariables, Varname
 
 T = TypeVar("T")
 TimeoutFunction = Callable[[], T]

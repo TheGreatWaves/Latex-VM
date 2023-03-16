@@ -2,8 +2,12 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
-from src.expression import Expression, ExpressionBuffer, ExpressionType
-from src.type_defs import (
+from latexvm.expression import (
+    Expression,
+    ExpressionBuffer,
+    ExpressionType,
+)
+from latexvm.type_defs import (
     ActionResult,
     CalculatorAction,
     EnvironmentVariables,

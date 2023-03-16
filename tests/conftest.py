@@ -1,6 +1,6 @@
 import pytest
 
-from src.graph_session import GraphSession
+from latexvm.graph_session import GraphSession
 
 
 @pytest.fixture()

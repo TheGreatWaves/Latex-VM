@@ -3,9 +3,13 @@ from typing import List
 
 import pytest
 
-from src.expression import Expression, ExpressionBuffer, ExpressionType
-from src.graph_session import GraphSession
-from src.type_defs import EnvironmentVariables
+from latexvm.expression import (
+    Expression,
+    ExpressionBuffer,
+    ExpressionType,
+)
+from latexvm.graph_session import GraphSession
+from latexvm.type_defs import EnvironmentVariables
 
 
 @pytest.mark.parametrize(
