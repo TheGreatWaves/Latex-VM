@@ -303,7 +303,7 @@ def test_simplifying_function_expression():
     short_function_equation: ExpressionBuffer = ExpressionBuffer.new(
         "f(x) = 2 + 2 + 2 + 2 + x"
     )
-    _ = Expression.try_simplify_expression(short_function_equation)
+    Expression.try_simplify_expression(short_function_equation)
     assert short_function_equation.assemble() == "f(x) = x + 8"
 
     short_function_equation: ExpressionBuffer = ExpressionBuffer.new(
@@ -378,3 +378,35 @@ def test_invalid_assignment_lhs(gs: GraphSession):
 
     res = gs.execute("x x = x*2")
     assert not res.ok() and "Invalid assignment lhs" in str(res.message)
+
+
+def test_invalid_arity(gs: GraphSession):
+    gs.execute("y = 20")
+    gs.execute(r"double(x) = x*(2)")
+    gs.execute(r"f(x, y) = double(x) * y")
+
+    input = r"\frac{2}{3} + f(\frac{2}{3})"
+    res = gs.force_resolve_function(input)
+
+    assert not res.ok() and "Function arity error" in str(res.message)
+
+
+def test_invalid_unresolved(gs: GraphSession):
+    gs.execute("y = 20")
+    gs.execute(r"double(x) = x*(2)")
+    gs.execute(r"f(x, y) = double(x) * y")
+
+    input = r"\frac{2}{3} + g(\frac{2}{3})"
+    res = gs.force_resolve_function(input)
+
+    assert not res.ok() and "Unresolved function(s) found" in str(res.message)
+
+
+def test_force_resolve(gs: GraphSession):
+    gs.execute("y = 20")
+    gs.execute(r"double(x) = x*(2)")
+    gs.execute(r"f(x, y) = double(x) * y")
+
+    input = r"\frac{2}{3} + f(\frac{2}{3}, y)"
+    res = gs.force_resolve_function(input)
+    assert res.ok and "2/3 + ((2/3)*2)*20" in str(res.message)

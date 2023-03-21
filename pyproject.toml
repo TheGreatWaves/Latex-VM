@@ -1,10 +1,9 @@
 [tool.poetry]
 name = "latexvm"
-version = "0.1.1"
+version = "0.1.2"
 description = ""
 authors = ["Ochawin Apichattakul"]
 readme = "README.md"
-
 
 [tool.poetry.dependencies]
 python = "^3.10"

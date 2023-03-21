@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
+from sympy.parsing.latex import parse_latex
+
 from latexvm.expression import (
     Expression,
     ExpressionBuffer,
@@ -17,26 +19,28 @@ from latexvm.type_defs import (
 
 @dataclass
 class GraphSession:
-    env: EnvironmentVariables
+    _env: EnvironmentVariables
 
     @staticmethod
-    def new() -> "GraphSession":
-        return GraphSession(env={})
+    def new(env: EnvironmentVariables = {}) -> "GraphSession":
+        # I don't know why, I shouldn't have to wonder why, but
+        # if I don't do this cursed expression, test cases fail
+        return GraphSession(_env=env if len(env) > 0 else {})
 
     def get_env(self) -> EnvironmentVariables:
-        return self.env
+        return self._env
 
-    def get_selected_env_variables(
+    def __get_selected_env_variables(
         self, varnames: Optional[List[Varname]]
     ) -> EnvironmentVariables:
         selected_variables = {
             env_varname: value
-            for env_varname, value in self.env.items()
+            for env_varname, value in self._env.items()
             if env_varname in varnames
         }
         return selected_variables
 
-    def resolve_variables(
+    def __resolve_variables(
         self, expr: ExpressionBuffer, forced_ignore: List[Varname] = list()
     ) -> None:
         match (expr.expr_type):
@@ -53,7 +57,7 @@ class GraphSession:
                     force_ignore=forced_ignore,
                 )
 
-    def resolve_function_names(self, expr: ExpressionBuffer) -> None:
+    def __resolve_function_names(self, expr: ExpressionBuffer) -> None:
 
         if expr.expr_type == ExpressionType.FUNCTION:
             expr.name = expr.name + "_func"
@@ -67,16 +71,31 @@ class GraphSession:
     def get_env_variables(self) -> EnvironmentVariables:
         return {
             varname: value
-            for varname, value in self.env.items()
+            for varname, value in self._env.items()
             if "_func" not in varname
         }
 
     def get_env_functions(self) -> EnvironmentVariables:
         return {
-            varname: value for varname, value in self.env.items() if "_func" in varname
+            varname: value for varname, value in self._env.items() if "_func" in varname
         }
 
-    def resolve(
+    def force_resolve_function(self, input: str) -> ActionResult[None, str]:
+        try:
+            func_buffer = self.__resolve(input=input)
+
+            if len(unresolved := func_buffer.has_unresolved_function()) > 0:
+                return ActionResult.fail(
+                    message="Unresolved function(s) found: {}".format(unresolved)
+                )
+
+            func_str = func_buffer.assemble()
+            expr = parse_latex(func_str)
+            return ActionResult.success(message=expr)
+        except Exception as e:
+            return ActionResult.fail(message=e)
+
+    def __resolve(
         self, input: str, forced_ignore: List[Varname] = list()
     ) -> ExpressionBuffer:
         # Clean the input
@@ -86,17 +105,17 @@ class GraphSession:
         processing = ExpressionBuffer.new(input)
 
         # Resolve all variables
-        self.resolve_variables(expr=processing, forced_ignore=forced_ignore)
+        self.__resolve_variables(expr=processing, forced_ignore=forced_ignore)
 
         # Format all function names in the form "<name>_func"
-        self.resolve_function_names(expr=processing)
+        self.__resolve_function_names(expr=processing)
 
-        # Substitute all functions
-        self.resolve_function_calls(expr=processing, force_ignore=forced_ignore)
+        # Resolve function calls
+        self.__resolve_function_calls(expr=processing, force_ignore=forced_ignore)
 
         return processing
 
-    def resolve_function_calls(
+    def __resolve_function_calls(
         self, expr: ExpressionBuffer, force_ignore: List[Varname] = list()
     ) -> str:
 
@@ -116,13 +135,36 @@ class GraphSession:
                 raw_args = Expression.get_parameters_from_function(function_call_site)
 
                 # Map arguments with function signature and definition
-                function_signature, function_definition = self.env[func_name]
+                function_signature, function_definition = self._env[func_name]
+
                 mapped_args = {
                     k: v for k, v in (dict(zip(function_signature, raw_args))).items()
                 }
 
+                filtered_variables = {}
+
+                # Arity check
+                difference = set(function_signature) - mapped_args.keys()
+                if len(difference) != 0:
+                    raise Exception(
+                        "Function arity error for '{}', missing: {}".format(
+                            func_name[: func_name.rindex("_func")], difference
+                        )
+                    )
+
+                # Load in the environment variables
+                for varname, varval in self._env.items():  # pragma: no cover
+                    if varname not in force_ignore:
+                        filtered_variables[varname] = varval
+
+                # Load in the mapped arguments, and also
+                # overwrite any value loaded in by environment
+                # variables if overlapping
+                for varname, varval in mapped_args.items():
+                    filtered_variables[varname] = varval
+
                 # Complete the substitution and replace
-                func = f"({Expression.substitute_function(function_definition, self.env, mapped_args, force_ignore)})"
+                func = f"({Expression.substitute_function(function_definition, filtered_variables)})"
 
                 expr.body = expr.body.replace(function_call_site, func)
 
@@ -139,7 +181,7 @@ class GraphSession:
         expr = None
 
         try:
-            expr = self.resolve(input=input)
+            expr = self.__resolve(input=input)
         except Exception as e:
             return ActionResult.fail(CalculatorAction.EXPRESSION_REDUCTION, e)
 
@@ -150,9 +192,9 @@ class GraphSession:
             case ExpressionType.ASSIGNMENT:
                 try:
                     fn, varnames = expr.create_callable()
-                    variables = self.get_selected_env_variables(varnames=varnames)
+                    variables = self.__get_selected_env_variables(varnames=varnames)
                     result_expression = str(fn(**variables))
-                    self.env[expr.name] = result_expression
+                    self._env[expr.name] = result_expression
                     return ActionResult.success(
                         CalculatorAction.VARIABLE_ASSIGNMENT, result_expression
                     )
@@ -160,7 +202,7 @@ class GraphSession:
                     return ActionResult.fail(CalculatorAction.VARIABLE_ASSIGNMENT, e)
 
             case ExpressionType.FUNCTION:
-                self.env[expr.name] = (expr.signature, expr.body)
+                self._env[expr.name] = (expr.signature, expr.body)
                 return ActionResult.success(
                     CalculatorAction.FUNCTION_DEFINITION, expr.assemble()
                 )
@@ -172,7 +214,7 @@ class GraphSession:
                         result_expression = str(float(input))
                     else:
                         fn, varnames = expr.create_callable()
-                        variables = self.get_selected_env_variables(varnames=varnames)
+                        variables = self.__get_selected_env_variables(varnames=varnames)
                         result_expression = str(fn(**variables))
 
                     return ActionResult.success(
@@ -182,8 +224,4 @@ class GraphSession:
                     return ActionResult.fail(CalculatorAction.STATEMENT_EXECUTION, e)
 
     def clear_session(self) -> None:
-        self.env.clear()
-
-
-# if __name__ == "__main__":
-#     gs = GraphSession.new()
+        self._env.clear()

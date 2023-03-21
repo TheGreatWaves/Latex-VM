@@ -87,6 +87,10 @@ class ExpressionBuffer:
         var_symbols = symbols(names=variables)
         return lambdify(args=var_symbols, expr=expr), var_symbols
 
+    def has_unresolved_function(self) -> List[str]:
+        unresolved: List[str] = [f[:-1] for f in re.findall(r"[a-zA-Z]+\(", self.body)]
+        return unresolved
+
 
 @dataclass
 class Expression:
@@ -233,19 +237,9 @@ class Expression:
     @staticmethod
     def substitute_function(
         fn: str,
-        variables: EnvironmentVariables,
-        func_params: EnvironmentVariables = {},
-        force_ignore: List[Varname] = [],
+        filtered_variables: EnvironmentVariables,
     ) -> str:
         resolved_fn: str = fn
-        filtered_variables = {}
-
-        for varname, varval in variables.items():  # pragma: no cover
-            if varname not in force_ignore:
-                filtered_variables[varname] = varval
-
-        for varname, varval in func_params.items():
-            filtered_variables[varname] = varval
 
         for varname, value in filtered_variables.items():
             pos = 0
@@ -360,7 +354,6 @@ class Expression:
         expr.body = Expression.replace_params_with_temp(expr.body, expr.signature)
         _ = Expression.simplify_body(expr=expr)
         expr.body = Expression.replace_temp_with_params(expr.body, expr.signature)
-        print(f"body: {expr.body}")
 
     @staticmethod
     def simplify_expression(expr: ExpressionBuffer) -> None:
