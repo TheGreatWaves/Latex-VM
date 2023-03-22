@@ -133,9 +133,11 @@ class GraphSession:
 
                 # Get the arguments passed into the function
                 raw_args = Expression.get_parameters_from_function(function_call_site)
+                args_len = len(raw_args)
 
                 # Map arguments with function signature and definition
                 function_signature, function_definition = self._env[func_name]
+                params_len = len(function_signature)
 
                 mapped_args = {
                     k: v for k, v in (dict(zip(function_signature, raw_args))).items()
@@ -144,11 +146,18 @@ class GraphSession:
                 filtered_variables = {}
 
                 # Arity check
-                difference = set(function_signature) - mapped_args.keys()
-                if len(difference) != 0:
+                if args_len < params_len:
                     raise Exception(
                         "Function arity error for '{}', missing: {}".format(
-                            func_name[: func_name.rindex("_func")], difference
+                            func_name[: func_name.rindex("_func")],
+                            function_signature[args_len:],
+                        )
+                    )
+                elif args_len > params_len:
+                    raise Exception(
+                        "Function arity error for '{}', too many arguments: {}".format(
+                            func_name[: func_name.rindex("_func")],
+                            raw_args[params_len:],
                         )
                     )
 

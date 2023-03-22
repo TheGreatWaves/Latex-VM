@@ -175,7 +175,9 @@ class Expression:
     @staticmethod
     def get_parameters_from_function(function_equation: str) -> List[Varname]:
         params = Expression.get_parameters_str_from_function(function_equation)[1:-1]
-        return ["{}".format(param.strip()) for param in params.split(",")]
+        return [
+            "{}".format(param.strip()) for param in params.split(",") if len(param) > 0
+        ]
 
     @staticmethod
     def get_expression_type(raw_equation: str) -> ExpressionType:
