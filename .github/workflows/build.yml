@@ -1,7 +1,7 @@
 name: Build
 
 env:
-  PYTHON_VERSION: "3.11.1"
+  PYTHON_VERSION: "3.10.7"
   POETRY_VERSION: "1.4.0"
 
 on:
