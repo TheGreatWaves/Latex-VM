@@ -23,6 +23,29 @@ class CalculatorAction(Enum):
 A = TypeVar("A")
 T = TypeVar("T")
 
+"""
+A generic class representing the result of an action, which can be either a success or a failure.
+
+Attributes:
+    action (Optional[A]): An optional value indicating the action that produced this result.
+    result (ResultType): A value indicating whether the action was successful or not.
+    message (Optional[T]): An optional message providing additional details about the result.
+
+Methods:
+    fail(action: Optional[A] = None, message: Optional[T] = None) -> "ActionResult":
+        Returns a new instance of the ActionResult class indicating that the action has failed.
+
+    success(action: Optional[A] = None, message: Optional[T] = None) -> "ActionResult":
+        Returns a new instance of the ActionResult class indicating that the action was successful.
+
+    __str__() -> str:
+        Returns a string representation of the ActionResult instance.
+
+    ok() -> bool:
+        Returns a boolean indicating whether the action was successful or not.
+
+"""
+
 
 @dataclass
 class ActionResult(Generic[T, A]):
@@ -46,7 +69,4 @@ class ActionResult(Generic[T, A]):
         return f"{action}{status}({self.message})"
 
     def ok(self) -> bool:
-        """
-        Returns a boolean indicating whether the action was successful or not.
-        """
         return self.result == ResultType.SUCCESS

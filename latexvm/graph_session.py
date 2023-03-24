@@ -26,16 +26,42 @@ class GraphSession:
     def new(
         env: EnvironmentVariables = {}, rules: Dict[str, str] = {}
     ) -> "GraphSession":
+        """
+        Returns a new instance of GraphSession class.
+
+        Args:
+            env (Optional[EnvironmentVariables]): Dictionary containing initial variable values. Defaults to {}.
+            rules (Optional[Dict[str, str]]): Dictionary containing initial graph transformation rules. Defaults to {}.
+
+        Returns:
+            GraphSession: A new instance of GraphSession class.
+        """
         # I don't know why, I shouldn't have to wonder why, but
         # if I don't do this cursed expression, test cases fail
         return GraphSession(_env=env if len(env) > 0 else {}, _sub_rules=rules)
 
     def get_env(self) -> EnvironmentVariables:
+        """
+        Return the current environment variables of the graph session.
+
+        Returns:
+            A dictionary containing the environment variables of the graph session.
+        """
         return self._env
 
     def __get_selected_env_variables(
         self, varnames: Optional[List[Varname]]
     ) -> EnvironmentVariables:
+        """
+        Returns a new instance of the GraphSession class.
+
+        Args:
+            env (Optional[EnvironmentVariables]): Dictionary containing initial variable values. Defaults to {}.
+            rules (Optional[Dict[str, str]]): Dictionary containing initial graph transformation rules. Defaults to {}.
+
+        Returns:
+            GraphSession: A new instance of the GraphSession class.
+        """
         selected_variables = {
             env_varname: value
             for env_varname, value in self._env.items()
@@ -49,6 +75,21 @@ class GraphSession:
         forced_ignore: List[Varname] = list(),
         forced_no_check: bool = False,
     ) -> None:
+
+        """
+        Resolve variables in the expression buffer's body and ensure that all variables are resolved.
+
+        Args:
+            expr (ExpressionBuffer): The expression buffer whose variables need to be resolved.
+            forced_ignore (List[Varname], optional): Variables that are to be ignored during resolution. Defaults to list().
+            forced_no_check (bool, optional): Ignore all checks and just do resolution. Defaults to False.
+
+        Raises:
+            Exception: If an unresolved variable is found.
+
+        Returns:
+            None
+        """
 
         if expr.expr_type == ExpressionType.FUNCTION:
             forced_ignore = expr.signature + forced_ignore
@@ -78,6 +119,17 @@ class GraphSession:
                 raise Exception(f"Unresolved variable(s) found: {unresolved_variables}")
 
     def __resolve_function_names(self, expr: ExpressionBuffer) -> None:
+
+        """
+        Replace function names with their dictionary keys.
+
+        Args:
+            expr (ExpressionBuffer): The expression buffer containing the function expression.
+
+        Returns:
+            None
+        """
+
         if expr.expr_type == ExpressionType.FUNCTION:
             expr.name = expr.name + "_func"
 
@@ -88,6 +140,12 @@ class GraphSession:
             expr.body = re.sub(pattern, f"{key}(", expr.body)
 
     def get_env_variables(self) -> EnvironmentVariables:
+        """
+        Returns a dictionary containing all environment variables that are not functions.
+
+        Returns:
+            EnvironmentVariables: A dictionary of variable names and their corresponding values.
+        """
         return {
             varname: value
             for varname, value in self._env.items()
@@ -95,6 +153,13 @@ class GraphSession:
         }
 
     def get_env_functions(self) -> EnvironmentVariables:
+        """
+        Returns a dictionary containing all the functions in the environment.
+
+        Returns:
+            EnvironmentVariables: A dictionary containing all the functions in the environment. The keys of the dictionary are the names of the functions suffixed with '_func', and the values are the corresponding function objects.
+
+        """
         return {
             varname: value for varname, value in self._env.items() if "_func" in varname
         }
@@ -102,6 +167,19 @@ class GraphSession:
     def force_resolve_function(
         self, input: str, use_sub_rule: bool = True
     ) -> ActionResult[None, str]:
+        """
+        Resolve and parse a given input string that represents a mathematical expression
+        containing a function call. The function call will be resolved by substituting
+        it with its value based on the function defined in the environment. The resulting
+        expression will then be parsed as a LaTeX string.
+
+        Args:
+            input (str): The input string to be resolved and parsed.
+            use_sub_rule (bool): Whether to apply substitute rules or not. Defaults to True.
+
+        Returns:
+            An `ActionResult` object containing either a parsed LaTeX string or an error message.
+        """
         try:
 
             # Breakdown and resolve the expression
@@ -123,15 +201,49 @@ class GraphSession:
             return ActionResult.fail(message=e)
 
     def add_sub_rule(self, pattern: str, replacement: str) -> None:
+        """
+        Adds a new substitution rule to the session.
+
+        Args:
+            pattern (str): The pattern to be replaced.
+            replacement (str): The replacement text.
+
+        Returns:
+            None.
+        """
         self._sub_rules[pattern] = replacement
 
     def remove_sub_rule(self, pattern: str) -> None:
+        """
+        Removes the specified pattern from the substitute rules dictionary.
+
+        Args:
+            pattern (str): The pattern to remove.
+
+        Returns:
+            None
+        """
         del self._sub_rules[pattern]
 
     def get_sub_rules(self) -> Dict[str, str]:
+        """
+        Returns a copy of the substitute rules dictionary.
+
+        Returns:
+            Dict[str, str]: A copy of the substitute rules dictionary.
+        """
         return self._sub_rules.copy()
 
     def __apply_sub_rule(self, input: str) -> str:
+        """
+        Applies the substitution rules defined in `sub_rules`.
+
+        Args:
+            input (str): The input string to apply the substitution rules to.
+
+        Returns:
+            str: The input string with the substitution rules applied.
+        """
         for pattern, replacement in self._sub_rules.items():
             input = re.sub(
                 pattern=r"{}".format(pattern),
@@ -146,6 +258,18 @@ class GraphSession:
         forced_ignore: List[Varname] = list(),
         forced_no_check: bool = False,
     ) -> ExpressionBuffer:
+        """
+        The __resolve method takes in an input expression string and resolves any variables and function calls present in the expression.
+        The resolved expression is then returned as an ExpressionBuffer.
+
+        Args:
+            input (str): The input expression string to be resolved.
+            forced_ignore (List[Varname], optional): A list of variable names that should be ignored during resolution. Defaults to an empty list.
+            forced_no_check (bool, optional): If True, the method will not check for variable conflicts during resolution. Defaults to False.
+
+        Returns:
+            processing (ExpressionBuffer): An ExpressionBuffer object representing the resolved expression.
+        """
         # Clean the input
 
         input = Expression.replace_latex_parens(expr_str=input)
@@ -171,6 +295,20 @@ class GraphSession:
     def __resolve_function_calls(
         self, expr: ExpressionBuffer, force_ignore: List[Varname] = list()
     ) -> str:
+        """
+        Resolve all function calls in the provided expression buffer.
+
+        Args:
+            expr (ExpressionBuffer): The expression buffer to resolve function calls for.
+            force_ignore (List[Varname], optional): A list of variable names to ignore when resolving function calls. Defaults to an empty list.
+
+        Returns:
+            str: The expression buffer with all function calls resolved.
+
+        Raises:
+            Exception: If the function arity does not match the number of arguments passed.
+            Exception: If there are unresolved functions in the expression buffer.
+        """
 
         if expr.expr_type == ExpressionType.FUNCTION:
             force_ignore = expr.signature
@@ -241,28 +379,49 @@ class GraphSession:
     def execute(
         self, input: str, simplify: bool = False
     ) -> ActionResult[CalculatorAction, str]:
+        """
+        Execute a given input string and return the result as an action result indicating whether the action was successful or not.
+
+        Args:
+            input (str): The input expression to be executed.
+            simplify (bool, optional): Whether to simplify the input expression before executing it.
+                Defaults to False.
+
+        Returns:
+            ActionResult[CalculatorAction, str]: The result of the execution, as an action result.
+
+        Raises:
+            CalculatorException: If an error occurs during execution.
+
+        Action Results:
+            - VARIABLE_ASSIGNMENT: The input string represents a variable assignment, and the value of
+            the assigned variable is returned as a string.
+            - FUNCTION_DEFINITION: The input string represents a function definition, and the
+            definition string is returned.
+            - STATEMENT_EXECUTION: The input string represents an arithmetic statement, and the result
+            of the statement execution is returned as a string.
+            - UNKNOWN: The input string is invalid or empty.
+        """
         if len(input) <= 0:
             return ActionResult.fail(
                 CalculatorAction.UNKNOWN, "Invalid input length. got=0"
             )
 
-        expr = None
-
         try:
-            expr = self.__resolve(input=input)
+            expression = self.__resolve(input=input)
         except Exception as e:
             return ActionResult.fail(CalculatorAction.EXPRESSION_REDUCTION, e)
 
         if simplify:
-            Expression.try_simplify_expression(expr=expr)
+            Expression.try_simplify_expression(expr=expression)
 
-        match (expr.expr_type):
+        match (expression.expr_type):
             case ExpressionType.ASSIGNMENT:
                 try:
-                    fn, varnames = expr.create_callable()
+                    fn, varnames = expression.create_callable()
                     variables = self.__get_selected_env_variables(varnames=varnames)
                     result_expression = str(fn(**variables))
-                    self._env[expr.name] = result_expression
+                    self._env[expression.name] = result_expression
                     return ActionResult.success(
                         CalculatorAction.VARIABLE_ASSIGNMENT, result_expression
                     )
@@ -270,9 +429,9 @@ class GraphSession:
                     return ActionResult.fail(CalculatorAction.VARIABLE_ASSIGNMENT, e)
 
             case ExpressionType.FUNCTION:
-                self._env[expr.name] = (expr.signature, expr.body)
+                self._env[expression.name] = (expression.signature, expression.body)
                 return ActionResult.success(
-                    CalculatorAction.FUNCTION_DEFINITION, expr.assemble()
+                    CalculatorAction.FUNCTION_DEFINITION, expression.assemble()
                 )
 
             case ExpressionType.STATEMENT | _:
@@ -281,9 +440,17 @@ class GraphSession:
                     if input.isdecimal() or input.isnumeric():
                         result_expression = str(float(input))
                     else:
-                        fn, varnames = expr.create_callable()
-                        variables = self.__get_selected_env_variables(varnames=varnames)
-                        result_expression = str(fn(**variables))
+                        # Create callable and get variable values
+                        (
+                            statement_callable,
+                            statement_variables,
+                        ) = expression.create_callable()
+                        variable_values = self.__get_selected_env_variables(
+                            varnames=statement_variables
+                        )
+
+                        # Execute statement
+                        result_expression = str(statement_callable(**variable_values))
 
                     return ActionResult.success(
                         CalculatorAction.STATEMENT_EXECUTION, result_expression
@@ -292,5 +459,11 @@ class GraphSession:
                     return ActionResult.fail(CalculatorAction.STATEMENT_EXECUTION, e)
 
     def clear_session(self) -> None:
+        """
+        Clears the calculator session by removing all variables and substitution rules from the environment.
+
+        Returns:
+            None.
+        """
         self._env.clear()
         self._sub_rules.clear()
