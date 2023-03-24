@@ -1,4 +1,9 @@
 # Latex-VM (Virtual Machine)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=TheGreatWaves_Latex-VM&metric=coverage)](https://sonarcloud.io/summary/new_code?id=TheGreatWaves_Latex-VM)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=TheGreatWaves_Latex-VM&metric=bugs)](https://sonarcloud.io/summary/new_code?id=TheGreatWaves_Latex-VM)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=TheGreatWaves_Latex-VM&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=TheGreatWaves_Latex-VM)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=TheGreatWaves_Latex-VM&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=TheGreatWaves_Latex-VM)
+
 Latex-VM is a simple context environment for mathematical expressions in LaTeX. It supports variable and function declaration.
 
 ### Type Aliases
