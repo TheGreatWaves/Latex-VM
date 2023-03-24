@@ -101,6 +101,9 @@ class GraphSession:
             # Apply all substitute rules
             if use_sub_rule:
                 expr_buff.body = self.apply_sub_rule(input=expr_buff.body)
+            else:
+                # Do nothing
+                pass
 
             expr = expr_buff.assemble()
             return ActionResult.success(message=expr)
@@ -113,9 +116,8 @@ class GraphSession:
     def remove_sub_rule(self, pattern: str) -> None:
         del self._sub_rules[pattern]
 
-    @property
     def get_sub_rules(self) -> Dict[str, str]:
-        return self._sub_rules
+        return self._sub_rules.copy()
 
     def apply_sub_rule(self, input: str) -> str:
         for pattern, replacement in self._sub_rules.items():
@@ -194,9 +196,11 @@ class GraphSession:
                     )
 
                 # Load in the environment variables
-                for varname, varval in self._env.items():  # pragma: no cover
+                for varname, varval in self._env.items():
                     if varname not in force_ignore:
                         filtered_variables[varname] = varval
+                    else:
+                        pass
 
                 # Load in the mapped arguments, and also
                 # overwrite any value loaded in by environment
@@ -266,3 +270,4 @@ class GraphSession:
 
     def clear_session(self) -> None:
         self._env.clear()
+        self._sub_rules.clear()
