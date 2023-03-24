@@ -46,4 +46,7 @@ class ActionResult(Generic[T, A]):
         return f"{action}{status}({self.message})"
 
     def ok(self) -> bool:
+        """
+        Returns a boolean indicating whether the action was successful or not.
+        """
         return self.result == ResultType.SUCCESS

@@ -28,7 +28,7 @@ def test_invalid_assignment_lhs(gs: GraphSession):
 def test_assignment_fail(gs: GraphSession):
     res = gs.execute(r"x = y")
 
-    assert "_lambdifygenerated()" in str(res.message)
+    assert "Unresolved variable(s) found" in str(res.message)
 
 
 @pytest.mark.parametrize(
@@ -49,6 +49,14 @@ def test_var_chaining(gs: GraphSession, commands: List[str], exp: str):
     assert gs.get_env()[lhs] == rhs
 
 
+@pytest.mark.parametrize(
+    "exc, exp",
+    [
+        ("v = 5", "5"),
+        ("whatwhat = 123123", "123123"),
+        ("hello = 2", "2"),
+    ],
+)
 def test_basic_var_declaration(gs: GraphSession, exc: str, exp: str):
     gs.execute(exc)
     assert gs.get_env_variables()[exc.split("=")[0].strip()] == exp

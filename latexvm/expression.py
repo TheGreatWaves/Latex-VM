@@ -1,7 +1,16 @@
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    TypeVar,
+)
 
 from sympy import Expr, lambdify, latex, simplify, symbols
 from sympy.parsing.latex import parse_latex
@@ -87,18 +96,25 @@ class ExpressionBuffer:
         var_symbols = symbols(names=variables)
         return lambdify(args=var_symbols, expr=expr), var_symbols
 
-    def has_unresolved_function(self) -> List[str]:
-        # This pattern matches function names (allows snake casing pattern)
-        # This pattern excludes latex style functions like \cos(x)
-        function_pattern: str = r"(?<!\\)\b[a-zA-Z_][a-zA-Z_0-9]*\b\("
-        unresolved: List[str] = [
-            f[:-1] for f in re.findall(function_pattern, self.body)
-        ]
-        return unresolved
+    def get_unresolved_functions(self) -> List[str]:
+        return Expression.find_all_functions(self.body)
 
 
 @dataclass
 class Expression:
+    @staticmethod
+    def find_all_functions(expr: str) -> Set[str]:
+        # This pattern matches function names (allows snake casing pattern)
+        # This pattern excludes latex style functions like \cos(x)
+        function_pattern: str = r"(?<!\\)\b[a-zA-Z_][a-zA-Z_0-9]*\b\("
+        unresolved: List[str] = [f[:-1] for f in re.findall(function_pattern, expr)]
+        return unresolved
+
+    @staticmethod
+    def find_all_variables(expr: str) -> Set[str]:
+        variable_pattern: str = r"(?<!\\)\b[a-zA-Z_][a-zA-Z0-9_]*\b(?!\()"
+        return set(re.findall(pattern=variable_pattern, string=expr))
+
     @staticmethod
     def unpack(value: Varname) -> Optional[Varname]:
         if value[0] != "(":

@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Set
 
 from sympy.parsing.latex import parse_latex
 
@@ -44,21 +44,38 @@ class GraphSession:
         return selected_variables
 
     def __resolve_variables(
-        self, expr: ExpressionBuffer, forced_ignore: List[Varname] = list()
+        self,
+        expr: ExpressionBuffer,
+        forced_ignore: List[Varname] = list(),
+        forced_no_check: bool = False,
     ) -> None:
-        match (expr.expr_type):
-            case ExpressionType.FUNCTION:
-                expr.body = Expression.replace_variables(
-                    expression=expr.body,
-                    variables=self.get_env_variables(),
-                    force_ignore=expr.signature + forced_ignore,
-                )
-            case _:
-                expr.body = Expression.replace_variables(
-                    expression=expr.body,
-                    variables=self.get_env_variables(),
-                    force_ignore=forced_ignore,
-                )
+
+        if expr.expr_type == ExpressionType.FUNCTION:
+            forced_ignore = expr.signature + forced_ignore
+
+        expr.body = Expression.replace_variables(
+            expression=expr.body,
+            variables=self.get_env_variables(),
+            force_ignore=forced_ignore,
+        )
+
+        if forced_no_check:
+            return
+        else:
+            # Check to make sure all variables are resovled, except
+            # for ones which are explicitly force-ignored
+
+            unresolved_variables = Expression.find_all_variables(expr=expr.body)
+
+            # Was not forced to ignore, meaning it is just invalid
+            not_forced_ignore: Callable = lambda param: param not in forced_ignore
+            is_unresolved = any(
+                not_forced_ignore(param) for param in unresolved_variables
+            )
+
+            if is_unresolved:
+                unresolved_variables = unresolved_variables - set(forced_ignore)
+                raise Exception(f"Unresolved variable(s) found: {unresolved_variables}")
 
     def __resolve_function_names(self, expr: ExpressionBuffer) -> None:
         if expr.expr_type == ExpressionType.FUNCTION:
@@ -86,21 +103,16 @@ class GraphSession:
         self, input: str, use_sub_rule: bool = True
     ) -> ActionResult[None, str]:
         try:
-            # Breakdown and resolve the expression
-            expr_buff = self.__resolve(input=input)
 
-            # Check for unresolved expressions
-            if len(unresolved := expr_buff.has_unresolved_function()) > 0:
-                return ActionResult.fail(
-                    message="Unresolved function(s) found: {}".format(unresolved)
-                )
+            # Breakdown and resolve the expression
+            expr_buff = self.__resolve(input=input, forced_no_check=True)
 
             # Parse the latex
             expr_buff.body = str(parse_latex(expr_buff.body))
 
             # Apply all substitute rules
             if use_sub_rule:
-                expr_buff.body = self.apply_sub_rule(input=expr_buff.body)
+                expr_buff.body = self.__apply_sub_rule(input=expr_buff.body)
             else:
                 # Do nothing
                 pass
@@ -119,7 +131,7 @@ class GraphSession:
     def get_sub_rules(self) -> Dict[str, str]:
         return self._sub_rules.copy()
 
-    def apply_sub_rule(self, input: str) -> str:
+    def __apply_sub_rule(self, input: str) -> str:
         for pattern, replacement in self._sub_rules.items():
             input = re.sub(
                 pattern=r"{}".format(pattern),
@@ -129,7 +141,10 @@ class GraphSession:
         return input
 
     def __resolve(
-        self, input: str, forced_ignore: List[Varname] = list()
+        self,
+        input: str,
+        forced_ignore: List[Varname] = list(),
+        forced_no_check: bool = False,
     ) -> ExpressionBuffer:
         # Clean the input
 
@@ -139,7 +154,11 @@ class GraphSession:
         processing = ExpressionBuffer.new(input)
 
         # Resolve all variables
-        self.__resolve_variables(expr=processing, forced_ignore=forced_ignore)
+        self.__resolve_variables(
+            expr=processing,
+            forced_ignore=forced_ignore,
+            forced_no_check=forced_no_check,
+        )
 
         # Format all function names in the form "<name>_func"
         self.__resolve_function_names(expr=processing)
@@ -212,6 +231,10 @@ class GraphSession:
                 func = f"({Expression.substitute_function(function_definition, filtered_variables)})"
 
                 expr.body = expr.body.replace(function_call_site, func)
+
+        unresolved_functions: Set[str] = expr.get_unresolved_functions()
+        if len(unresolved_functions) > 0:
+            raise Exception(f"Unresolved function(s) found: {unresolved_functions}")
 
         return expr.assemble()
 

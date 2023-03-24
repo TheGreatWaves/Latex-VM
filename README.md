@@ -1,16 +1,13 @@
 # Latex-VM (Virtual Machine)
-A simple context environment for mathematical expressions in LaTeX.
-
-Supports:
-  - Variable declaration
-  - Function declaration
+Latex-VM is a simple context environment for mathematical expressions in LaTeX. It supports variable and function declaration.
 
 ### Type Aliases
-```py
-Varname = str
-ExpressionStr = str
-EnvironmentVariables = Dict[Varname, Any]
-```
+| Type                | Definition                 |
+|---------------------|----------------------------|
+| Varname             | `str`                      |
+| ExpressionStr       | `str`                      |
+| EnvironmentVariables| `Dict[Varname, Any]`       |
+
 
 ### API
 ```py
@@ -19,12 +16,16 @@ class ActionResult:
 
 class GraphSession:
     @staticmethod
-    def new(env: EnvironmentVariables = {}) -> "GraphSession"
+    def new(env: EnvironmentVariables = {}, rules: Dict[str, str] = {}) -> "GraphSession"
     def execute(self, input: str, simplify: bool = False) -> ActionResult[CalculatorAction, str]
     def get_env_functions(self) -> EnvironmentVariables
     def get_env_variables(self) -> EnvironmentVariables
     def get_env(self) -> EnvironmentVariables
-    def force_resolve_function(self, input: str) -> ActionResult[None, str]
+    def force_resolve_function(self, input: str, use_sub_rule: bool = True) -> ActionResult[None, str]
+    def add_sub_rule(self, pattern: str, replacement: str) -> None
+    def remove_sub_rule(self, pattern: str) -> None
+    def get_sub_rules(self) -> Dict[str, str]
+    def clear_session(self) -> None
 ```
 
 ### Example Usage
@@ -107,4 +108,43 @@ session.execute(r"f(x) = \frac{x}{3} + 3 + y + y + y")
 
 # Action: CalculatorAction.FUNCTION_DEFINITION, Ok(f_func(x) = \frac{x}{3} + 63)
 session.execute(r"f(x) = \frac{x}{3} + 3 + y + y + y", simplify=True)
+```
+
+### Substitution Rules
+The `GraphSession.force_resolve_function` method returns a Pythonic representation of the input. However, this representation may need to be modified in order to be usable. For this reason, there are substitution rules that can be applied to the output.
+
+> This behavior is enabled default, to resolve without using substitution rules, set `use_sub_rule` to `False`.
+
+```python
+gs.execute(r"make_abs(x) = \left|x\right|")
+gs.execute(r"pow(a, b) = a^{b}")
+
+# Without any substituion rule
+print(gs.force_resolve_function(r"pow(make_abs(x), make_abs(y))"))   # Ok(Abs(x)**Abs(y))
+
+# We want abs(...) instead of Abs(...)
+gs.add_sub_rule("Abs", "abs")
+gs.force_resolve_function(r"pow(make_abs(x), make_abs(y))")   # Ok(abs(x)**abs(y))
+
+# We need pow expressed using '^'
+gs.add_sub_rule(r"\*\*", "^")
+gs.force_resolve_function(r"pow(make_abs(x), make_abs(y))")   # Ok(abs(x)^abs(y))
+
+# Resolve without using substitution rules
+gs.force_resolve_function(r"pow(make_abs(x), make_abs(y))", use_sub_rule=False) # Ok(Abs(x)**Abs(y))
+```
+
+### LaTeX override
+You can override LaTeX functions by declaring a function with the same name. This allows you to customize the functionality of the function according to your needs.
+
+```python
+# Works perfectly fine
+print(gs.force_resolve_function(r"\sin\left(x\right)")) # Ok(sin(x))
+
+# Override
+gs.execute("double(x) = 2 x")
+gs.execute("sin(a) = double(a)")
+
+# Sin is now overridden
+print(gs.force_resolve_function(r"\sin\left(x\right)")) # Ok(x*2)
 ```

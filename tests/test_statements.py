@@ -1,3 +1,5 @@
+import pytest
+
 from latexvm.graph_session import GraphSession
 
 
@@ -13,6 +15,15 @@ def test_statement(gs: GraphSession):
     assert res2.ok() and "2.3" == res2.message
 
 
-def test_statement_fail(gs: GraphSession):
-    res = gs.execute(r"y")
-    assert "_lambdifygenerated()" in str(res.message)
+@pytest.mark.parametrize(
+    "input, expected",
+    [
+        (r"y", "Unresolved variable(s) found"),
+        (r"f(x)", "Unresolved variable(s) found"),  # Variable is resolved first
+        (r"f(5)", "Unresolved function(s) found"),
+        (r"\what? 42!", "I don't understand"),
+    ],
+)
+def test_statement_fail(gs: GraphSession, input: str, expected: str):
+    res = gs.execute(input=input)
+    assert expected in str(res.message)

@@ -28,14 +28,6 @@ def test_raw_expr(gs: GraphSession):
     assert gs.get_env()["x"] == "2"
 
 
-@pytest.mark.parametrize(
-    "exc, exp",
-    [
-        ("v = 5", "5"),
-        ("whatwhat = 123123", "123123"),
-        ("hello = 2", "2"),
-    ],
-)
 def test_break_expression():
     _, rhs = Expression.break_expression(raw_expr="some_f(1) + 2")
     assert rhs == ""
