@@ -31,6 +31,30 @@ class ExpressionType(Enum):
     STATEMENT: int = 3
 
 
+class ExpressionError(Exception):
+    pass
+
+
+class InvalidFunctionError(ExpressionError):
+    pass
+
+
+class ChainAssignmentError(ExpressionError):
+    pass
+
+
+class InvalidAssignmentError(ExpressionError):
+    pass
+
+
+class PackingError(ExpressionError):
+    pass
+
+
+class FunctionArityError(ExpressionError):
+    pass
+
+
 """
 An expression can either be a graphing statement
 expression or an assignment expression.
@@ -55,26 +79,28 @@ class ExpressionBuffer:
         Raises:
             Exception: If the input expression is invalid.
         """
-        type: ExpressionType = Expression.get_expression_type(expr)
+        expression_type: ExpressionType = Expression.get_expression_type(expr)
 
-        match (type):
+        match expression_type:
             case ExpressionType.FUNCTION:
                 lhs, definition = Expression.break_expression(expr)
 
                 fname = Expression.get_function_name(lhs)
 
-                if lhs[-1] != ")":
-                    raise Exception(f"Invalid function lhs: '{lhs}'")
+                function_not_closed: bool = lhs[-1] != ")"
+                more_than_one_identifier_found: bool = (
+                    len(re.findall(r"[a-zA-Z_]\w*", fname)) != 1
+                )
 
-                if len(re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", fname)) != 1:
-                    raise Exception(f"Invalid function lhs: '{lhs}'")
+                if function_not_closed or more_than_one_identifier_found:
+                    raise InvalidFunctionError(f"Invalid function lhs: '{lhs}'")
 
                 signature_str: str = Expression.get_parameters_str_from_function(lhs)
                 signature: List[str] = Expression.get_parameters_from_function(
                     signature_str
                 )
                 return FunctionExpressionBuffer(
-                    expr_type=type,
+                    expr_type=expression_type,
                     name=fname,
                     signature=signature,
                     signature_str=signature_str,
@@ -83,15 +109,17 @@ class ExpressionBuffer:
             case ExpressionType.ASSIGNMENT:
                 name, body = Expression.break_expression(expr)
 
-                if s := re.search(r"(?<!\{)\b\d+\b(?!\}|\{)", name):
-                    raise Exception(f"Invalid identifier: '{s.group()}'")
+                if s := re.search(r"(?<!\{)\b\d+\b(?![\}\{])", name):
+                    raise InvalidAssignmentError(f"Invalid identifier: '{s.group()}'")
 
                 if len(re.findall(r"\b[a-zA-Z_0-9{}]+\b", name)) > 1:
-                    raise Exception(f"Invalid assignment lhs: '{name}'")
+                    raise InvalidAssignmentError(f"Invalid assignment lhs: '{name}'")
 
-                return AssignmentExpressionBuffer(expr_type=type, name=name, body=body)
+                return AssignmentExpressionBuffer(
+                    expr_type=expression_type, name=name, body=body
+                )
             case _:
-                return StatementExpressionBuffer(expr_type=type, body=expr)
+                return StatementExpressionBuffer(expr_type=expression_type, body=expr)
 
     def assemble(self) -> str:
         """
@@ -120,7 +148,7 @@ class ExpressionBuffer:
         var_symbols = symbols(names=variables)
         return lambdify(args=var_symbols, expr=expr), var_symbols
 
-    def get_unresolved_functions(self) -> List[str]:
+    def get_unresolved_functions(self) -> Set[str]:
         """
         Create a callable function from the expression in the buffer.
 
@@ -186,7 +214,7 @@ class Expression:
             Exception: If the input value is not properly packed.
         """
         if value[0] != "(":
-            raise Exception("Value not packed")
+            raise PackingError("Value not packed")
 
         idx = 1
         resolution = 1
@@ -200,7 +228,7 @@ class Expression:
             idx += 1
 
         if resolution != 0:
-            raise Exception("Value pack missing closing parenthesis")
+            raise PackingError("Value pack missing closing parenthesis")
 
         unpacked_value = value[1:idx]
         return unpacked_value
@@ -359,7 +387,7 @@ class Expression:
 
         while resolution > 0:
             if idx >= size:
-                raise Exception("Function not closed")
+                raise InvalidFunctionError("Function not closed")
 
             c = function_equation[idx]
 
@@ -430,7 +458,7 @@ class Expression:
                 resolution -= 1
             elif c == "=" and resolution == 0:
                 if is_assignment:
-                    raise Exception("Chaining assignment is not allowed")
+                    raise ChainAssignmentError("Chaining assignment is not allowed")
                 is_assignment = True
 
         if is_assignment:

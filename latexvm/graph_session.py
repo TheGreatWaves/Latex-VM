@@ -8,6 +8,7 @@ from latexvm.expression import (
     Expression,
     ExpressionBuffer,
     ExpressionType,
+    FunctionArityError,
 )
 from latexvm.type_defs import (
     ActionResult,
@@ -15,6 +16,18 @@ from latexvm.type_defs import (
     EnvironmentVariables,
     Varname,
 )
+
+
+class SessionError(Exception):
+    pass
+
+
+class UnresolvedFunctionError(SessionError):
+    pass
+
+
+class UnresolvedVariableError(SessionError):
+    pass
 
 
 @dataclass
@@ -116,7 +129,9 @@ class GraphSession:
 
             if is_unresolved:
                 unresolved_variables = unresolved_variables - set(forced_ignore)
-                raise Exception(f"Unresolved variable(s) found: {unresolved_variables}")
+                raise UnresolvedVariableError(
+                    f"Unresolved variable(s) found: {unresolved_variables}"
+                )
 
     def __resolve_function_names(self, expr: ExpressionBuffer) -> None:
 
@@ -183,14 +198,14 @@ class GraphSession:
         try:
 
             # Breakdown and resolve the expression
-            expr_buff = self.__resolve(input=input, forced_no_check=True)
+            expr_buff = self.__resolve(input_exression=input, forced_no_check=True)
 
             # Parse the latex
             expr_buff.body = str(parse_latex(expr_buff.body))
 
             # Apply all substitute rules
             if use_sub_rule:
-                expr_buff.body = self.__apply_sub_rule(input=expr_buff.body)
+                expr_buff.body = self.__apply_sub_rule(input_expression=expr_buff.body)
             else:
                 # Do nothing
                 pass
@@ -234,7 +249,7 @@ class GraphSession:
         """
         return self._sub_rules.copy()
 
-    def __apply_sub_rule(self, input: str) -> str:
+    def __apply_sub_rule(self, input_expression: str) -> str:
         """
         Applies the substitution rules defined in `sub_rules`.
 
@@ -245,16 +260,16 @@ class GraphSession:
             str: The input string with the substitution rules applied.
         """
         for pattern, replacement in self._sub_rules.items():
-            input = re.sub(
+            input_expression = re.sub(
                 pattern=r"{}".format(pattern),
                 repl=r"{}".format(replacement),
-                string=input,
+                string=input_expression,
             )
-        return input
+        return input_expression
 
     def __resolve(
         self,
-        input: str,
+        input_exression: str,
         forced_ignore: List[Varname] = list(),
         forced_no_check: bool = False,
     ) -> ExpressionBuffer:
@@ -272,10 +287,10 @@ class GraphSession:
         """
         # Clean the input
 
-        input = Expression.replace_latex_parens(expr_str=input)
-        input = re.sub(r"\\ ", "", input)
+        input_exression = Expression.replace_latex_parens(expr_str=input_exression)
+        input_exression = input_exression.replace(r"\\ ", "")
 
-        processing = ExpressionBuffer.new(input)
+        processing = ExpressionBuffer.new(input_exression)
 
         # Resolve all variables
         self.__resolve_variables(
@@ -291,6 +306,8 @@ class GraphSession:
         self.__resolve_function_calls(expr=processing, force_ignore=forced_ignore)
 
         return processing
+
+    # def __check_arity(func_name:Varname, function_signature: List[Varname], args_len: int, params_len:)
 
     def __resolve_function_calls(
         self, expr: ExpressionBuffer, force_ignore: List[Varname] = list()
@@ -310,6 +327,7 @@ class GraphSession:
             Exception: If there are unresolved functions in the expression buffer.
         """
 
+        # Forcefully ignore function parameters
         if expr.expr_type == ExpressionType.FUNCTION:
             force_ignore = expr.signature
 
@@ -337,44 +355,65 @@ class GraphSession:
                 filtered_variables = {}
 
                 # Arity check
-                if args_len < params_len:
-                    raise Exception(
-                        "Function arity error for '{}', missing: {}".format(
-                            func_name[: func_name.rindex("_func")],
-                            function_signature[args_len:],
-                        )
-                    )
-                elif args_len > params_len:
-                    raise Exception(
-                        "Function arity error for '{}', too many arguments: {}".format(
-                            func_name[: func_name.rindex("_func")],
-                            raw_args[params_len:],
-                        )
-                    )
+                self.__check_function_arity(
+                    args_len, func_name, function_signature, params_len, raw_args
+                )
 
                 # Load in the environment variables
-                for varname, varval in self._env.items():
+                for varname, value in self._env.items():
                     if varname not in force_ignore:
-                        filtered_variables[varname] = varval
-                    else:
-                        pass
+                        filtered_variables[varname] = value
 
                 # Load in the mapped arguments, and also
                 # overwrite any value loaded in by environment
                 # variables if overlapping
-                for varname, varval in mapped_args.items():
-                    filtered_variables[varname] = varval
+                for varname, value in mapped_args.items():
+                    filtered_variables[varname] = value
 
                 # Complete the substitution and replace
                 func = f"({Expression.substitute_function(function_definition, filtered_variables)})"
 
                 expr.body = expr.body.replace(function_call_site, func)
 
-        unresolved_functions: Set[str] = expr.get_unresolved_functions()
-        if len(unresolved_functions) > 0:
-            raise Exception(f"Unresolved function(s) found: {unresolved_functions}")
+        self.__validate_function_resolution(expr)
 
         return expr.assemble()
+
+    def __validate_function_resolution(self, expr: ExpressionBuffer) -> None:
+        """
+        Validates the function resolution, ensure that all functions are resolved.
+
+        Args:
+            expr (str):
+        """
+        unresolved_functions: Set[str] = expr.get_unresolved_functions()
+        if len(unresolved_functions) > 0:
+            raise UnresolvedFunctionError(
+                f"Unresolved function(s) found: {unresolved_functions}"
+            )
+
+    def __check_function_arity(
+        self,
+        args_len: int,
+        func_name: Varname,
+        function_signature: List[Varname],
+        params_len: int,
+        raw_args: List[Varname],
+    ) -> None:
+        if args_len < params_len:
+            raise FunctionArityError(
+                "Function arity error for '{}', missing: {}".format(
+                    func_name[: func_name.rindex("_func")],
+                    function_signature[args_len:],
+                )
+            )
+        elif args_len > params_len:
+            raise FunctionArityError(
+                "Function arity error for '{}', too many arguments: {}".format(
+                    func_name[: func_name.rindex("_func")],
+                    raw_args[params_len:],
+                )
+            )
 
     def execute(
         self, input: str, simplify: bool = False
@@ -408,7 +447,7 @@ class GraphSession:
             )
 
         try:
-            expression = self.__resolve(input=input)
+            expression = self.__resolve(input_exression=input)
         except Exception as e:
             return ActionResult.fail(CalculatorAction.EXPRESSION_REDUCTION, e)
 
