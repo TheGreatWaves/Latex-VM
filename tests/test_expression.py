@@ -292,8 +292,18 @@ def test_simplifying_statement_expression():
 
     long_equation_str = r"g\left(x,\ y\right) = \frac{w\left(\sqrt{y\ ^{\frac{\sqrt{\frac{f\left(w\left(x\right)\right)\cdot2\ +\ y}{\sqrt{w\left(f\left(x\right)+w\left(2\right)\right)}\cdot3}}}{w\left(24\right)}}}\right)}{2\ \cdot\ \ln\ 2}"
     long_equation_str = Expression.replace_latex_parens(long_equation_str)
+    print(f"eq: {long_equation_str}")
     long_equation: ExpressionBuffer = ExpressionBuffer.new(long_equation_str)
     _ = Expression.try_simplify_expression(long_equation)
+
+    what = ExpressionBuffer.new(
+        r"\frac{w\left(\sqrt{y\ ^{\frac{\sqrt{\frac{f\left(w\left(x\right)\right)\cdot2\ +\ y}{\sqrt{w\left(f\left(x\right)+w\left(2\right)\right)}\cdot3}}}{w\left(24\right)}}}\right)}{2\ \cdot\ \ln\ 2}"
+    )
+    Expression.try_simplify_expression(what)
+
+    print(f"what: {what.assemble()}")
+
+    print("WHY")
     print(long_equation.assemble())
     print(long_equation_str)
     assert long_equation.assemble() == long_equation_str
@@ -398,6 +408,7 @@ def test_invalid_unresolved(gs: GraphSession):
 
     input = r"\frac{2}{3} + g(\frac{2}{3})"
     res = gs.force_resolve_function(input)
+    print(res)
 
     assert not res.ok() and "Unresolved function(s) found" in str(res.message)
 
@@ -409,4 +420,10 @@ def test_force_resolve(gs: GraphSession):
 
     input = r"\frac{2}{3} + f(\frac{2}{3}, y)"
     res = gs.force_resolve_function(input)
-    assert res.ok and "2/3 + ((2/3)*2)*20" in str(res.message)
+    assert res.ok() and "2/3 + ((2/3)*2)*20" in str(res.message)
+
+
+def test_arity_error(gs: GraphSession):
+    gs.execute("add(a, b) = a + b")
+    res = gs.execute("add(1, 3, 1)")
+    assert not res.ok() and "too many arguments" in str(res.message)

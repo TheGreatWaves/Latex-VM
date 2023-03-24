@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from sympy.parsing.latex import parse_latex
 
@@ -20,12 +20,15 @@ from latexvm.type_defs import (
 @dataclass
 class GraphSession:
     _env: EnvironmentVariables
+    _sub_rules: Dict[str, str]
 
     @staticmethod
-    def new(env: EnvironmentVariables = {}) -> "GraphSession":
+    def new(
+        env: EnvironmentVariables = {}, rules: Dict[str, str] = {}
+    ) -> "GraphSession":
         # I don't know why, I shouldn't have to wonder why, but
         # if I don't do this cursed expression, test cases fail
-        return GraphSession(_env=env if len(env) > 0 else {})
+        return GraphSession(_env=env if len(env) > 0 else {}, _sub_rules=rules)
 
     def get_env(self) -> EnvironmentVariables:
         return self._env
@@ -58,14 +61,13 @@ class GraphSession:
                 )
 
     def __resolve_function_names(self, expr: ExpressionBuffer) -> None:
-
         if expr.expr_type == ExpressionType.FUNCTION:
             expr.name = expr.name + "_func"
 
         # Replace function names with their dictionary keys
         for key in self.get_env_functions():
             fname: str = key[: key.rindex("_func")]
-            pattern: str = r"\b{}\(".format(fname)
+            pattern: str = r"[\\]?\b{}\(".format(fname)
             expr.body = re.sub(pattern, f"{key}(", expr.body)
 
     def get_env_variables(self) -> EnvironmentVariables:
@@ -80,25 +82,55 @@ class GraphSession:
             varname: value for varname, value in self._env.items() if "_func" in varname
         }
 
-    def force_resolve_function(self, input: str) -> ActionResult[None, str]:
+    def force_resolve_function(
+        self, input: str, use_sub_rule: bool = True
+    ) -> ActionResult[None, str]:
         try:
-            func_buffer = self.__resolve(input=input)
+            # Breakdown and resolve the expression
+            expr_buff = self.__resolve(input=input)
 
-            if len(unresolved := func_buffer.has_unresolved_function()) > 0:
+            # Check for unresolved expressions
+            if len(unresolved := expr_buff.has_unresolved_function()) > 0:
                 return ActionResult.fail(
                     message="Unresolved function(s) found: {}".format(unresolved)
                 )
 
-            func_str = func_buffer.assemble()
-            expr = parse_latex(func_str)
+            # Parse the latex
+            expr_buff.body = str(parse_latex(expr_buff.body))
+
+            # Apply all substitute rules
+            if use_sub_rule:
+                expr_buff.body = self.apply_sub_rule(input=expr_buff.body)
+
+            expr = expr_buff.assemble()
             return ActionResult.success(message=expr)
         except Exception as e:
             return ActionResult.fail(message=e)
+
+    def add_sub_rule(self, pattern: str, replacement: str) -> None:
+        self._sub_rules[pattern] = replacement
+
+    def remove_sub_rule(self, pattern: str) -> None:
+        del self._sub_rules[pattern]
+
+    @property
+    def get_sub_rules(self) -> Dict[str, str]:
+        return self._sub_rules
+
+    def apply_sub_rule(self, input: str) -> str:
+        for pattern, replacement in self._sub_rules.items():
+            input = re.sub(
+                pattern=r"{}".format(pattern),
+                repl=r"{}".format(replacement),
+                string=input,
+            )
+        return input
 
     def __resolve(
         self, input: str, forced_ignore: List[Varname] = list()
     ) -> ExpressionBuffer:
         # Clean the input
+
         input = Expression.replace_latex_parens(expr_str=input)
         input = re.sub(r"\\ ", "", input)
 

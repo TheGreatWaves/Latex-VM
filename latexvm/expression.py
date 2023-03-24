@@ -88,7 +88,12 @@ class ExpressionBuffer:
         return lambdify(args=var_symbols, expr=expr), var_symbols
 
     def has_unresolved_function(self) -> List[str]:
-        unresolved: List[str] = [f[:-1] for f in re.findall(r"[a-zA-Z]+\(", self.body)]
+        # This pattern matches function names (allows snake casing pattern)
+        # This pattern excludes latex style functions like \cos(x)
+        function_pattern: str = r"(?<!\\)\b[a-zA-Z_][a-zA-Z_0-9]*\b\("
+        unresolved: List[str] = [
+            f[:-1] for f in re.findall(function_pattern, self.body)
+        ]
         return unresolved
 
 
@@ -327,7 +332,6 @@ class Expression:
         Note:
             It leaves behind the '(' and ')' from left and right respectively.
         """
-        # Remove \left and \right commands from expression string
         expr_str = re.sub(r"\\(left|right)", "", expr_str)
         return expr_str
 
@@ -350,6 +354,7 @@ class Expression:
     @staticmethod
     def simplify_body(expr: ExpressionBuffer) -> None:
         expr.body = Expression.simplify_latex_expression(expr.body)
+        expr.body = Expression.replace_latex_parens(expr_str=expr.body)
 
     @staticmethod
     def simplify_function_expression(expr: ExpressionBuffer) -> None:
