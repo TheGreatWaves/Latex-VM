@@ -91,7 +91,8 @@ def test_long_param_names(gs: GraphSession):
         "f(some_long_var_name, some_long_var_name_2) = some_long_var_name * some_long_var_name_2"
     )
 
-    if (f := gs.get_env_functions().get("f")) is not None:
+    f = gs.get_env_functions().get("f")
+    if f is not None:
         param, definition = f
 
         assert len(param) == 2

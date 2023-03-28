@@ -81,45 +81,45 @@ class ExpressionBuffer:
         """
         expression_type: ExpressionType = Expression.get_expression_type(expr)
 
-        match expression_type:
-            case ExpressionType.FUNCTION:
-                lhs, definition = Expression.break_expression(expr)
+        if expression_type == ExpressionType.FUNCTION:
+            lhs, definition = Expression.break_expression(expr)
 
-                fname = Expression.get_function_name(lhs)
+            fname = Expression.get_function_name(lhs)
 
-                function_not_closed: bool = lhs[-1] != ")"
-                more_than_one_identifier_found: bool = (
-                    len(re.findall(r"[a-zA-Z_]\w*", fname)) != 1
-                )
+            function_not_closed: bool = lhs[-1] != ")"
+            more_than_one_identifier_found: bool = (
+                len(re.findall(r"[a-zA-Z_]\w*", fname)) != 1
+            )
 
-                if function_not_closed or more_than_one_identifier_found:
-                    raise InvalidFunctionError(f"Invalid function lhs: '{lhs}'")
+            if function_not_closed or more_than_one_identifier_found:
+                raise InvalidFunctionError(f"Invalid function lhs: '{lhs}'")
 
-                signature_str: str = Expression.get_parameters_str_from_function(lhs)
-                signature: List[str] = Expression.get_parameters_from_function(
-                    signature_str
-                )
-                return FunctionExpressionBuffer(
-                    expr_type=expression_type,
-                    name=fname,
-                    signature=signature,
-                    signature_str=signature_str,
-                    body=definition,
-                )
-            case ExpressionType.ASSIGNMENT:
-                name, body = Expression.break_expression(expr)
+            signature_str: str = Expression.get_parameters_str_from_function(lhs)
+            signature: List[str] = Expression.get_parameters_from_function(
+                signature_str
+            )
+            return FunctionExpressionBuffer(
+                expr_type=expression_type,
+                name=fname,
+                signature=signature,
+                signature_str=signature_str,
+                body=definition,
+            )
+        elif expression_type == ExpressionType.ASSIGNMENT:
+            name, body = Expression.break_expression(expr)
+            s = re.search(r"(?<!\{)\b\d+\b(?![\}\{])", name)
 
-                if s := re.search(r"(?<!\{)\b\d+\b(?![\}\{])", name):
-                    raise InvalidAssignmentError(f"Invalid identifier: '{s.group()}'")
+            if s:
+                raise InvalidAssignmentError(f"Invalid identifier: '{s.group()}'")
 
-                if len(re.findall(r"\b[a-zA-Z_0-9{}]+\b", name)) > 1:
-                    raise InvalidAssignmentError(f"Invalid assignment lhs: '{name}'")
+            if len(re.findall(r"\b[a-zA-Z_0-9{}]+\b", name)) > 1:
+                raise InvalidAssignmentError(f"Invalid assignment lhs: '{name}'")
 
-                return AssignmentExpressionBuffer(
-                    expr_type=expression_type, name=name, body=body
-                )
-            case _:
-                return StatementExpressionBuffer(expr_type=expression_type, body=expr)
+            return AssignmentExpressionBuffer(
+                expr_type=expression_type, name=name, body=body
+            )
+        else:
+            return StatementExpressionBuffer(expr_type=expression_type, body=expr)
 
     def assemble(self) -> str:
         """
@@ -128,13 +128,13 @@ class ExpressionBuffer:
         Returns:
         str: The assembled expression.
         """
-        match (self.expr_type):
-            case ExpressionType.FUNCTION:
-                return f"{self.name}{self.signature_str} = {self.body}"
-            case ExpressionType.ASSIGNMENT:
-                return f"{self.name} = {self.body}"
-            case _:
-                return self.body
+
+        if self.expr_type == ExpressionType.FUNCTION:
+            return f"{self.name}{self.signature_str} = {self.body}"
+        elif self.expr_type == ExpressionType.ASSIGNMENT:
+            return f"{self.name} = {self.body}"
+        else:
+            return self.body
 
     def create_callable(self) -> Tuple[Callable, List[Varname]]:
         """
@@ -566,18 +566,20 @@ class Expression:
             pos = 0
             pat = r"\b{}\b".format(re.escape(varname))
 
-            while m := re.search(pat, resolved_fn[pos:]):
+            m = re.search(pat, resolved_fn[pos:])
+            while m:
                 start, end = m.span()
                 replacement = Expression.pack(value)
                 resolved_fn = (
                     resolved_fn[: pos + start] + replacement + resolved_fn[pos + end :]
                 )
                 pos += start + len(replacement)
+                m = re.search(pat, resolved_fn[pos:])
 
         return resolved_fn
 
     @staticmethod
-    def try_running(func: TimeoutFunction[T], timeout_value: float) -> (T | None):
+    def try_running(func: TimeoutFunction[T], timeout_value: float) -> Optional[T]:
         """
         Runs a function with a timeout and returns its result.
 
@@ -755,11 +757,10 @@ class Expression:
         finally restoring the original parameters. If the expression is not a function, `simplify_body` is called
         directly on the expression.
         """
-        match expr.expr_type:
-            case ExpressionType.FUNCTION:
-                Expression.simplify_function_expression(expr)
-            case _:
-                Expression.simplify_body(expr)
+        if expr.expr_type == ExpressionType.FUNCTION:
+            Expression.simplify_function_expression(expr)
+        else:
+            Expression.simplify_body(expr)
 
 
 @dataclass

@@ -334,7 +334,8 @@ class GraphSession:
         func_names = {f for f in self.get_env_functions() if f in expr.body}
 
         for func_name in func_names:
-            while match := re.search(r"\b{}".format(func_name), expr.body):
+            match = re.search(r"\b{}".format(func_name), expr.body)
+            while match:
                 # Obtain the function call site
                 function_call_site = Expression.capture_function(
                     input=expr.body[match.start() :], func_name=func_name  # noqa: E203
@@ -374,6 +375,8 @@ class GraphSession:
                 func = f"({Expression.substitute_function(function_definition, filtered_variables)})"
 
                 expr.body = expr.body.replace(function_call_site, func)
+
+                match = re.search(r"\b{}".format(func_name), expr.body)
 
         self.__validate_function_resolution(expr)
 
@@ -454,48 +457,47 @@ class GraphSession:
         if simplify:
             Expression.try_simplify_expression(expr=expression)
 
-        match (expression.expr_type):
-            case ExpressionType.ASSIGNMENT:
-                try:
-                    fn, varnames = expression.create_callable()
-                    variables = self.__get_selected_env_variables(varnames=varnames)
-                    result_expression = str(fn(**variables))
-                    self._env[expression.name] = result_expression
-                    return ActionResult.success(
-                        CalculatorAction.VARIABLE_ASSIGNMENT, result_expression
-                    )
-                except Exception as e:
-                    return ActionResult.fail(CalculatorAction.VARIABLE_ASSIGNMENT, e)
-
-            case ExpressionType.FUNCTION:
-                self._env[expression.name] = (expression.signature, expression.body)
+        if expression.expr_type == ExpressionType.ASSIGNMENT:
+            try:
+                fn, varnames = expression.create_callable()
+                variables = self.__get_selected_env_variables(varnames=varnames)
+                result_expression = str(fn(**variables))
+                self._env[expression.name] = result_expression
                 return ActionResult.success(
-                    CalculatorAction.FUNCTION_DEFINITION, expression.assemble()
+                    CalculatorAction.VARIABLE_ASSIGNMENT, result_expression
                 )
+            except Exception as e:
+                return ActionResult.fail(CalculatorAction.VARIABLE_ASSIGNMENT, e)
 
-            case ExpressionType.STATEMENT | _:
-                try:
-                    result_expression: str = ""
-                    if input.isdecimal() or input.isnumeric():
-                        result_expression = str(float(input))
-                    else:
-                        # Create callable and get variable values
-                        (
-                            statement_callable,
-                            statement_variables,
-                        ) = expression.create_callable()
-                        variable_values = self.__get_selected_env_variables(
-                            varnames=statement_variables
-                        )
+        elif expression.expr_type == ExpressionType.FUNCTION:
+            self._env[expression.name] = (expression.signature, expression.body)
+            return ActionResult.success(
+                CalculatorAction.FUNCTION_DEFINITION, expression.assemble()
+            )
 
-                        # Execute statement
-                        result_expression = str(statement_callable(**variable_values))
-
-                    return ActionResult.success(
-                        CalculatorAction.STATEMENT_EXECUTION, result_expression
+        else:
+            try:
+                result_expression: str = ""
+                if input.isdecimal() or input.isnumeric():
+                    result_expression = str(float(input))
+                else:
+                    # Create callable and get variable values
+                    (
+                        statement_callable,
+                        statement_variables,
+                    ) = expression.create_callable()
+                    variable_values = self.__get_selected_env_variables(
+                        varnames=statement_variables
                     )
-                except Exception as e:
-                    return ActionResult.fail(CalculatorAction.STATEMENT_EXECUTION, e)
+
+                    # Execute statement
+                    result_expression = str(statement_callable(**variable_values))
+
+                return ActionResult.success(
+                    CalculatorAction.STATEMENT_EXECUTION, result_expression
+                )
+            except Exception as e:
+                return ActionResult.fail(CalculatorAction.STATEMENT_EXECUTION, e)
 
     def clear_session(self) -> None:
         """
